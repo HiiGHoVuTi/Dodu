@@ -1,5 +1,6 @@
 module Lambda (
   LambdaExpr(..),
+  LambdaVal(..),
   LEnv,
 ) where
 
@@ -7,10 +8,10 @@ import Data.Text
 import Data.Map
 
 data LambdaVal
-  = Rational
-  | List Rational
+  = LRat Rational
+  | LList [Rational]
 
-data LEnv = Map Text LambdaExpr
+type LEnv = Map Text LambdaExpr
 
 data LambdaExpr
   = LVar Text
