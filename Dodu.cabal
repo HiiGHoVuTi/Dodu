@@ -25,11 +25,12 @@ executable Dodu
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    -- other-modules:
+    other-modules:    Pretty
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     build-depends:    base ^>=4.15.1.0
+                    , mtl
                     , parsec
                     , haskeline
                     , optparse-applicative
