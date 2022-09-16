@@ -8,12 +8,12 @@ import Data.Text
 import Data.Map
 
 data LambdaVal
-  = LRat Rational
-  | LList [Rational]
+  = LRat Rational -- jus de rat
+  | LList [LambdaExpr]
 
 type LEnv = Map Text LambdaExpr
 
 data LambdaExpr
   = LVar Text
   | LApp LambdaExpr LambdaExpr
-  | LLit LambdaVal
+  | LVal LambdaVal
