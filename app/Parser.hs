@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Parser (
   programParser, exprParser
 ) where
@@ -15,7 +16,7 @@ type Program = [(Text, LambdaExpr)]
 
 -- LANGUAGE
 glyph :: Parser Char
-glyph = noneOf $ " (){}[]"++['0'..'9']
+glyph = noneOf $ " (){}[],;"++['0'..'9']
 
 languageDef :: LanguageDef ()
 languageDef = emptyDef
@@ -41,14 +42,14 @@ declParser = do
   return (i, e)
 
 programParser :: Parser Program
-programParser = many declParser
+programParser = many declParser <* eof
 
 -- EXPRESSIONS
 num :: Parser Rational
 num = (%1) . read <$> many1 digit
 
 array :: Parser [LambdaExpr]
-array = char '[' *> exprParser `sepBy` char ','  <* char ']'
+array = char '[' *> exprParser `sepBy` char ';'  <* char ']'
 
 litParser :: Parser LambdaExpr 
 litParser = fmap (LVal . LRat) num <|> fmap (LVal . LList) array
@@ -60,6 +61,12 @@ term, term' :: Parser LambdaExpr
 term = litParser <|> varParser <|> trainParser <|> lexer `parens` exprParser
 term' = whiteSpace lexer *> term
 
+compositionParser :: Parser LambdaExpr
+compositionParser = do
+  f <- term'
+  _ <- char ','
+  LApp (LApp (LVar ",") f) <$> term'
+
 appParser :: Parser LambdaExpr
 appParser = do 
   foldl1' LApp <$> many1 term'
@@ -70,5 +77,5 @@ trainParser = char '{' *> fmap toTrain (many1 term') <* char '}'
     toTrain o = error $ show (length o) ++ "-trains not yet defined !" 
 
 exprParser :: Parser LambdaExpr
-exprParser = appParser <|> term
+exprParser = try compositionParser <|> try appParser <|> term'
 
