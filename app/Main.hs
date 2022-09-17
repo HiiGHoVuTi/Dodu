@@ -1,10 +1,13 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
-import Control.Applicative
+import Control.Applicative hiding (empty)
 import Control.Monad.Trans
+import Data.Map (empty)
+import Interpreter
 import Options.Applicative.Builder
 import Options.Applicative.Extra
+import Parser
 import Pretty
 import System.Console.Haskeline
 
@@ -45,4 +48,10 @@ repl = do
     \case
       Nothing -> pure ()
       Just ":q" -> lift $ putStrLn "Thanks for using Dodu 🐧"
-      Just r -> lift (putStrLn r) >> repl
+      Just r -> do
+        lift $ 
+          -- FIXME(Maxime): add a repl scope to also parse assignments
+          case parseExpr "repl" r of
+            Left e -> print e
+            Right p -> putStrLn . showVal $ eval p
+        repl

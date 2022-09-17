@@ -1,32 +1,53 @@
-module Interpreter where
+{-# LANGUAGE OverloadedStrings, LambdaCase, GeneralisedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts #-}
+module Interpreter (
+  eval, showVal
+) where
 
-import Lambda
+import Control.Monad.Reader
+import Data.Fix
+import Data.List
 import Data.Map
-import Data.Text
+import Data.Ratio
+import Data.Text hiding (empty)
+import Lambda
+import Pretty
 
+newtype LEnv t = LEnv { unEnv :: Reader (Map Text (RuntimeVal LEnv)) t } 
+  deriving (Functor, Applicative, Monad)
+
+instance MonadReader (Map Text (RuntimeVal LEnv)) LEnv where
+  ask = LEnv ask
+  local f = LEnv . local f . unEnv
 
 builtins :: Map Text (LambdaExpr -> LambdaExpr)
 builtins = fromList [] -- TODO: Add builtin functions
 
+eval :: LambdaExpr -> RuntimeVal LEnv
+eval l = runReader (unEnv (foldFix exprAlgebra l)) empty
 
-evalExpr :: LEnv -> LambdaExpr -> LambdaExpr
-evalExpr env expr =
-  case expr of
-    LVal (LRat r) -> LVal (LRat r)
-    LVal (LList l) -> LVal (LList (fmap (evalExpr env) l))
-    LVar var -> env ! var
+exprAlgebra :: MonadReader (Map Text (RuntimeVal m)) m
+            => Algebra LambdaF (m (RuntimeVal m))
+exprAlgebra = 
+  \case
+    LVal (LRat x) -> (pure . ComputedValue . LRat) x
+    LVal (LList xs) -> ComputedValue .  LList <$> sequence xs
+    LVar t -> do
+      e <- ask
+      pure (e ! t)
+    LAbs t body -> do
+      e <- ask
+      pure $ Closure t e body
+    LApp f x -> do
+      f' <- f
+      x' <- x
+      case f' of
+        Closure t ctx e -> local (const (Data.Map.insert t x' ctx)) e
+        ComputedValue v -> (pure.ComputedValue) v
 
-    -- applications
-    LApp (LVal a) _    -> evalExpr env (LVal a)
-    LApp (LVar v) expr
-      | v `member` env -> evalExpr env (LApp (env ! v) (evalExpr env expr))
+showVal :: RuntimeVal m -> String
+showVal (ComputedValue (LRat x))
+  | denominator x == 1 = show (numerator x) #Literal
+  | otherwise          = show (numerator x) #Literal <> "/" #Parens <> show (denominator x) #Literal
+showVal (ComputedValue (LList xs)) = "[" #Parens <>  Data.List.intercalate " ; " (showVal <$> xs) <> "]" #Parens
+showVal Closure{} = "Cannot show for now" #Error
 
-    LApp (LVar v) expr
-      | v `member` builtins -> (builtins ! v) (evalExpr env expr)
-
-    LApp (LAbs x body) expr ->
-      let res = evalExpr env expr in
-        evalExpr (insert x res env) body
-
-
-    _ -> error "sale rat"

@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Parser (
-  programParser, exprParser
+  programParser, exprParser,
+  parseProgram, parseExpr
 ) where
 
+import Data.Fix
 import Data.List
 import Data.Ratio
 import Data.Text hiding (foldl1', length, zipWith, take)
@@ -13,12 +15,6 @@ import Text.Parsec.String (Parser)
 import Text.Parsec.Token
 
 type Program = [(Text, LambdaExpr)]
-
--- NOTE(Maxime): a bit wack but it creates identifiers that feel almost random
-mush :: (Enum a, Enum b, Enum c) => a -> b -> c
-mush a b = toEnum $ fromEnum a - fromEnum b `mod` fromEnum a
-mushAll :: Show a => [a] -> Text
-mushAll = pack . foldl1' (zipWith mush) . fmap (take 100 . show) 
 
 -- LANGUAGE
 glyph :: Parser Char
@@ -50,18 +46,21 @@ declParser = do
 programParser :: Parser Program
 programParser = many declParser <* eof
 
+parseProgram :: SourceName -> String -> Either ParseError Program
+parseProgram = parse programParser
+
 -- EXPRESSIONS
 num :: Parser Rational
 num = (%1) . read <$> many1 digit
 
 array :: Parser [LambdaExpr]
-array = char '[' *> exprParser `sepBy` char ';'  <* char ']'
+array = char '[' *> exprParser `sepBy` (whiteSpace lexer *> char ';')  <* char ']'
 
 litParser :: Parser LambdaExpr 
-litParser = fmap (LVal . LRat) num <|> fmap (LVal . LList) array
+litParser = fmap (lVal . LRat) num <|> fmap (lVal . LList) array
 
 varParser :: Parser LambdaExpr
-varParser = LVar . pack <$> identifier lexer
+varParser = wrapFix . LVar . pack <$> identifier lexer
 
 term, term' :: Parser LambdaExpr
 term = litParser <|> varParser <|> trainParser <|> lexer `parens` exprParser
@@ -72,28 +71,31 @@ compositionParser = do
   f <- term'
   _ <- char ','
   g <- term'
-  let x = mushAll [f, g] 
-    in pure $ LAbs x (LApp f (LApp g (LVar x)))
+  let x = "" -- FIXME(Maxime): get UID 
+    in pure $ lAbs x (lApp f (lApp g (lVar x)))
 
 appParser :: Parser LambdaExpr
 appParser = do 
-  foldl1' LApp <$> many1 term'
+  foldl1' lApp <$> many1 term'
 
 trainParser :: Parser LambdaExpr
 trainParser = char '{' *> fmap toTrain (many1 term') <* char '}'
   where
     -- λax.a
-    toTrain [a] = LAbs "_" a
+    toTrain [a] = lAbs "_" a
     -- λabx.a(bx)x
     toTrain [a, b] = 
-      let x = mushAll [a, b]
-      in LAbs x (LApp (LApp a (LApp b (LVar x))) (LVar x))
+      let x = "" -- FIXME(Maxime): UID
+      in lAbs x (lApp (lApp a (lApp b (lVar x))) (lVar x))
     -- λabcx.a(bx)(cx)
     toTrain [a, b, c] = 
-      let x = mushAll [a, b, c]
-      in LAbs x (LApp (LApp a (LApp b (LVar x))) (LApp c (LVar x)))
+      let x = "" -- FIXME(Maxime): UID
+      in lAbs x (lApp (lApp a (lApp b (lVar x))) (lApp c (lVar x)))
     toTrain o = error $ show (length o) ++ "-trains not yet defined !" 
 
 exprParser :: Parser LambdaExpr
 exprParser = try compositionParser <|> try appParser <|> term'
+
+parseExpr :: SourceName -> String -> Either ParseError LambdaExpr
+parseExpr = parse exprParser
 

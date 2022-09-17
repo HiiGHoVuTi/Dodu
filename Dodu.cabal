@@ -39,6 +39,8 @@ executable Dodu
                     , haskeline
                     , optparse-applicative
                     , containers
+                    , data-fix
+                    , recursion-schemes
     hs-source-dirs:   app
     default-language: Haskell2010
     ghc-options:     -Wall
