@@ -28,6 +28,7 @@ executable Dodu
     other-modules:    Pretty
                     , Lambda
                     , Parser
+                    , Interpreter
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
