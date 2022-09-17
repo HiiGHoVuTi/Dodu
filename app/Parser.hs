@@ -14,6 +14,12 @@ import Text.Parsec.Token
 
 type Program = [(Text, LambdaExpr)]
 
+-- NOTE(Maxime): a bit wack but it creates identifiers that feel almost random
+mush :: (Enum a, Enum b, Enum c) => a -> b -> c
+mush a b = toEnum $ fromEnum a - fromEnum b `mod` fromEnum a
+mushAll :: Show a => [a] -> Text
+mushAll = pack . foldl1' (zipWith mush) . fmap (take 100 . show) 
+
 -- LANGUAGE
 glyph :: Parser Char
 glyph = noneOf $ " (){}[],;"++['0'..'9']
@@ -65,7 +71,9 @@ compositionParser :: Parser LambdaExpr
 compositionParser = do
   f <- term'
   _ <- char ','
-  LApp (LApp (LVar ",") f) <$> term'
+  g <- term'
+  let x = mushAll [f, g] 
+    in pure $ LAbs x (LApp f (LApp g (LVar x)))
 
 appParser :: Parser LambdaExpr
 appParser = do 
@@ -74,9 +82,6 @@ appParser = do
 trainParser :: Parser LambdaExpr
 trainParser = char '{' *> fmap toTrain (many1 term') <* char '}'
   where
-    -- NOTE(Maxime): a bit wack but it creates identifiers that feel almost random
-    mush a b = toEnum $ fromEnum a - fromEnum b `mod` fromEnum a
-    mushAll = pack . foldl1' (zipWith mush) . fmap (take 100 . show) 
     -- λax.a
     toTrain [a] = LAbs "_" a
     -- λabx.a(bx)x
