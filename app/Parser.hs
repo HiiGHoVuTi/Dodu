@@ -5,7 +5,7 @@ module Parser (
 
 import Data.List
 import Data.Ratio
-import Data.Text hiding (foldl1', length)
+import Data.Text hiding (foldl1', length, zipWith, take)
 import Lambda
 import Text.Parsec
 import Text.Parsec.Language
@@ -74,6 +74,19 @@ appParser = do
 trainParser :: Parser LambdaExpr
 trainParser = char '{' *> fmap toTrain (many1 term') <* char '}'
   where
+    -- NOTE(Maxime): a bit wack but it creates identifiers that feel almost random
+    mush a b = toEnum $ fromEnum a - fromEnum b `mod` fromEnum a
+    mushAll = pack . foldl1' (zipWith mush) . fmap (take 100 . show) 
+    -- λax.a
+    toTrain [a] = LAbs "_" a
+    -- λabx.a(bx)x
+    toTrain [a, b] = 
+      let x = mushAll [a, b]
+      in LAbs x (LApp (LApp a (LApp b (LVar x))) (LVar x))
+    -- λabcx.a(bx)(cx)
+    toTrain [a, b, c] = 
+      let x = mushAll [a, b, c]
+      in LAbs x (LApp (LApp a (LApp b (LVar x))) (LApp c (LVar x)))
     toTrain o = error $ show (length o) ++ "-trains not yet defined !" 
 
 exprParser :: Parser LambdaExpr

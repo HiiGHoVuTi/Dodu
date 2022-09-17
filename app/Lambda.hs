@@ -17,5 +17,6 @@ type LEnv = Map Text LambdaExpr
 data LambdaExpr
   = LVar Text
   | LApp LambdaExpr LambdaExpr
+  | LAbs Text LambdaExpr
   | LVal LambdaVal
   deriving (Show)
