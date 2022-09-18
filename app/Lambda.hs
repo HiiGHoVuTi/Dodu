@@ -36,5 +36,4 @@ lVal = wrapFix . LVal
 
 data RuntimeVal m
   = ComputedValue (LambdaVal (RuntimeVal m))
-  | Closure Text (Map Text (RuntimeVal m)) (m (RuntimeVal m))
   | DataFunction (RuntimeVal m -> m (RuntimeVal m))

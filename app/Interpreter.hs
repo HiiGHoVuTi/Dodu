@@ -22,6 +22,15 @@ instance MonadReader (Map Text (RuntimeVal LEnv)) LEnv where
   ask = LEnv ask
   local f = LEnv . local f . unEnv
 
+concatValues :: RuntimeVal m -> RuntimeVal m -> RuntimeVal m
+concatValues a'@(ComputedValue a) b'@(ComputedValue b) =
+  ComputedValue $ case (a, b) of
+    (LRat _, LRat _) -> LList [a', b']
+    (LList xs, LRat _) -> LList (xs ++ [b'])
+    (LRat _, LList ys) -> LList (a' : ys)
+    (LList xs, LList ys) -> LList (xs ++ ys)
+concatValues _ _ = error ("sale rat" #Error)
+
 rankPolymorphicBinary' :: 
   IsEnv m => 
   (Rational -> Rational -> m Rational) ->
@@ -45,6 +54,8 @@ builtins :: IsEnv m => Map Text (RuntimeVal m)
 builtins = fromList 
   [ ("I" , DataFunction pure)
   , ("K" , DataFunction . const . pure $ DataFunction pure)
+  , ("F" , DataFunction $ \(DataFunction f) -> pure . DataFunction $ \x -> pure . DataFunction $ \y ->
+      do g' <- f y; let DataFunction g = g' in g x)
   , ("+" , rankPolymorphicBinary $ (pure .) . (+))
   , ("-" , rankPolymorphicBinary $ (pure .) . (-))
   , ("*" , rankPolymorphicBinary $ (pure .) . (*))
@@ -52,16 +63,17 @@ builtins = fromList
   , ("=" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (==))
   , ("!=", rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (/=))
   , ("i" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
+  , (":" , DataFunction $ \x -> pure . DataFunction $ \y -> pure (concatValues x y))
   ]
 -- NOTE(Maxime): this is actually needed for some reason
 builtinNames :: [Text]
 builtinNames 
   =  -- Combinators
-  ["I", "K"]
+  ["I", "K", "F"]
   ++ -- Numbers
   ["+", "-", "*", "/", "="]
   ++ -- Arrays
-  ["i"]
+  ["i", ":"]
 
 eval :: LambdaExpr -> RuntimeVal LEnv
 eval l = runReader (unEnv (foldFix exprAlgebra l)) empty
@@ -78,11 +90,12 @@ exprAlgebra =
         pure (e ! t)
     LAbs t body -> do
       e <- ask
-      pure $ Closure t e body
+      pure . DataFunction $ \x -> do
+        local (const (Data.Map.insert t x e)) body
     LApp f' x' -> do
       f <- f'; x <- x'
       case f of
-        Closure t ctx e -> local (const (Data.Map.insert t x ctx)) e
+        -- Closure t ctx e -> local (const (Data.Map.insert t x ctx)) e
         DataFunction df -> df x
         ComputedValue v -> (pure.ComputedValue) v
 
@@ -91,6 +104,6 @@ showVal (ComputedValue (LRat x))
   | denominator x == 1 = show (numerator x) #Literal
   | otherwise          = show (numerator x) #Literal <> "/" #Parens <> show (denominator x) #Literal
 showVal (ComputedValue (LList xs)) = "[" #Parens <>  Data.List.intercalate " ; " (showVal <$> xs) <> "]" #Parens
-showVal Closure{}      = "Cannot show Closure" #Error
+-- showVal Closure{}      = "Cannot show Closure" #Error
 showVal DataFunction{} = "Cannot show Data Function" #Error
 

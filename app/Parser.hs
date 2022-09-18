@@ -68,9 +68,8 @@ term' = whiteSpace lexer *> term <* whiteSpace lexer
 
 compositionParser :: Parser LambdaExpr
 compositionParser = do
-  f <- term'
-  _ <- char ','
-  g <- term'
+  f <- try appParser <|> term'  
+  g <- char ',' *> exprParser
   let x = "" -- FIXME(Maxime): get UID 
     in pure $ lAbs x (lApp g (lApp f (lVar x)))
 
@@ -97,5 +96,5 @@ exprParser :: Parser LambdaExpr
 exprParser = try compositionParser <|> try appParser <|> term'
 
 parseExpr :: SourceName -> String -> Either ParseError LambdaExpr
-parseExpr = parse exprParser
+parseExpr = parse (exprParser <* eof)
 
