@@ -128,6 +128,11 @@ builtins = fromList
                             where rotate :: Int -> [a] -> [a]
                                   rotate a l = Data.List.drop a l ++ Data.List.take a l -- not sure about performance but easiest way to define
       (_, _) -> error ("Bad arguments" #Error))
+
+  , ("nth", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
+    case (n', x) of
+      (LRat n, LList xs) -> pure $ xs !! fromEnum n
+      (_, _) -> error ("Bad arguments" #Error))
   ]
 
 -- NOTE(Maxime): this is actually needed for some reason
@@ -141,6 +146,8 @@ builtinNames
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
   ["map", "keep", "fold", "scan", "head", "tail", "take", "rotate"]
+  ++ -- misc ?
+  ["nth"]
   ++ -- Arrays
   ["i", ":"]
 
@@ -156,7 +163,9 @@ exprAlgebra =
       | t `Data.List.elem` builtinNames -> pure $ builtins ! t
       | otherwise -> do
         e <- ask
-        pure (e ! t)
+        if t `member` e
+          then pure (e ! t)
+          else error (("No function named " ++ unpack t) #Error)
     LAbs t body -> do
       e <- ask
       pure . DataFunction $ \x -> do
