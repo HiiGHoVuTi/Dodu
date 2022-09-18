@@ -116,7 +116,19 @@ builtins = fromList
       LRat _ -> pure . LList $ []
       LList [] -> error ("NotEnoughRatsError" #Error)
       LList xs -> pure . LList . tail $ xs)
-  ] -- TODO: add take, rotate
+
+  , ("take", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
+    ComputedValue <$> case (n', x) of
+      (LRat n, LList xs) -> pure . LList $ Data.List.take (fromEnum n) xs
+      (_, _) -> error ("Bad arguments" #Error))
+
+  , ("rotate", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
+    ComputedValue <$> case (n', x) of
+      (LRat n, LList xs) -> pure . LList $ rotate (fromEnum n) xs
+                            where rotate :: Int -> [a] -> [a]
+                                  rotate a l = Data.List.drop a l ++ Data.List.take a l -- not sure about performance but easiest way to define
+      (_, _) -> error ("Bad arguments" #Error))
+  ]
 
 -- NOTE(Maxime): this is actually needed for some reason
 builtinNames :: [Text]
@@ -128,7 +140,7 @@ builtinNames
   ++ -- Comparison
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
-  ["map", "keep", "fold", "scan", "head", "tail"]
+  ["map", "keep", "fold", "scan", "head", "tail", "take", "rotate"]
   ++ -- Arrays
   ["i", ":"]
 
