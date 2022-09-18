@@ -3,7 +3,6 @@ module Main where
 
 import Control.Applicative hiding (empty)
 import Control.Monad.Trans
-import Data.Map (empty)
 import Interpreter
 import Options.Applicative.Builder
 import Options.Applicative.Extra

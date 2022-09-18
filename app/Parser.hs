@@ -64,7 +64,7 @@ varParser = wrapFix . LVar . pack <$> identifier lexer
 
 term, term' :: Parser LambdaExpr
 term = litParser <|> varParser <|> trainParser <|> lexer `parens` exprParser
-term' = whiteSpace lexer *> term
+term' = whiteSpace lexer *> term <* whiteSpace lexer
 
 compositionParser :: Parser LambdaExpr
 compositionParser = do
@@ -72,7 +72,7 @@ compositionParser = do
   _ <- char ','
   g <- term'
   let x = "" -- FIXME(Maxime): get UID 
-    in pure $ lAbs x (lApp f (lApp g (lVar x)))
+    in pure $ lAbs x (lApp g (lApp f (lVar x)))
 
 appParser :: Parser LambdaExpr
 appParser = do 
@@ -90,7 +90,7 @@ trainParser = char '{' *> fmap toTrain (many1 term') <* char '}'
     -- λabcx.a(bx)(cx)
     toTrain [a, b, c] = 
       let x = "" -- FIXME(Maxime): UID
-      in lAbs x (lApp (lApp a (lApp b (lVar x))) (lApp c (lVar x)))
+      in lAbs x (lApp (lApp b (lApp a (lVar x))) (lApp c (lVar x)))
     toTrain o = error $ show (length o) ++ "-trains not yet defined !" 
 
 exprParser :: Parser LambdaExpr
