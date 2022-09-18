@@ -7,7 +7,6 @@ module Lambda (
 ) where
 
 import Data.Fix
-import Data.Map
 import Data.Text
 
 type Algebra f a = f a -> a
