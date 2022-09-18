@@ -110,6 +110,8 @@ builtinNames
   ["+", "-", "*", "/"]
   ++ -- Comparison
   ["=", "!=", ">", ">=", "<", "<="]
+  ++ -- Folds, unfolds, maps
+  ["scan", "fold", "keep", "map"]
   ++ -- Arrays
   ["i", ":"] -- TODO: head, tail, take, rotate
 
