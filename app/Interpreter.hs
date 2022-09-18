@@ -13,7 +13,7 @@ import Data.Text hiding (empty)
 import Lambda
 import Pretty
 
-newtype LEnv t = LEnv { unEnv :: Reader (Map Text (RuntimeVal LEnv)) t } 
+newtype LEnv t = LEnv { unEnv :: Reader (Map Text (RuntimeVal LEnv)) t }
   deriving (Functor, Applicative, Monad)
 
 type IsEnv m = MonadReader (Map Text (RuntimeVal m)) m
@@ -31,8 +31,8 @@ concatValues a'@(ComputedValue a) b'@(ComputedValue b) =
     (LList xs, LList ys) -> LList (xs ++ ys)
 concatValues _ _ = error ("sale rat" #Error)
 
-rankPolymorphicBinary' :: 
-  IsEnv m => 
+rankPolymorphicBinary' ::
+  IsEnv m =>
   (Rational -> Rational -> m Rational) ->
   RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
 rankPolymorphicBinary' f a' b' =
@@ -51,7 +51,7 @@ rankPolymorphicBinary f =
   rankPolymorphicBinary' f a b
 
 builtins :: IsEnv m => Map Text (RuntimeVal m)
-builtins = fromList 
+builtins = fromList
   [ ("I" , DataFunction pure)
   , ("K" , DataFunction . const . pure $ DataFunction pure)
   , ("F" , DataFunction $ \(DataFunction f) -> pure . DataFunction $ \x -> pure . DataFunction $ \y ->
@@ -62,16 +62,22 @@ builtins = fromList
   , ("/" , rankPolymorphicBinary $ (pure .) . (/))
   , ("=" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (==))
   , ("!=", rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (/=))
+  , (">" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (>))
+  , (">=" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (>=))
+  , ("<" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (<))
+  , ("<=" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (<=))
   , ("i" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
   , (":" , DataFunction $ \x -> pure . DataFunction $ \y -> pure (concatValues x y))
   ]
 -- NOTE(Maxime): this is actually needed for some reason
 builtinNames :: [Text]
-builtinNames 
+builtinNames
   =  -- Combinators
   ["I", "K", "F"]
   ++ -- Numbers
-  ["+", "-", "*", "/", "="]
+  ["+", "-", "*", "/"]
+  ++ -- Comparison
+  ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Arrays
   ["i", ":"]
 
@@ -79,7 +85,7 @@ eval :: LambdaExpr -> RuntimeVal LEnv
 eval l = runReader (unEnv (foldFix exprAlgebra l)) empty
 
 exprAlgebra :: IsEnv m => Algebra LambdaF (m (RuntimeVal m))
-exprAlgebra = 
+exprAlgebra =
   \case
     LVal (LRat x) -> (pure . ComputedValue . LRat) x
     LVal (LList xs) -> ComputedValue .  LList <$> sequence xs
@@ -106,4 +112,3 @@ showVal (ComputedValue (LRat x))
 showVal (ComputedValue (LList xs)) = "[" #Parens <>  Data.List.intercalate " ; " (showVal <$> xs) <> "]" #Parens
 -- showVal Closure{}      = "Cannot show Closure" #Error
 showVal DataFunction{} = "Cannot show Data Function" #Error
-
