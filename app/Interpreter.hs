@@ -22,6 +22,12 @@ instance MonadReader (Map Text (RuntimeVal LEnv)) LEnv where
   ask = LEnv ask
   local f = LEnv . local f . unEnv
 
+executeAsDataFunction :: IsEnv m => RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
+executeAsDataFunction f x = 
+  case f of 
+    ComputedValue z -> pure (ComputedValue z)
+    DataFunction g -> g x
+
 concatValues :: RuntimeVal m -> RuntimeVal m -> RuntimeVal m
 concatValues a'@(ComputedValue a) b'@(ComputedValue b) =
   ComputedValue $ case (a, b) of
@@ -54,8 +60,8 @@ builtins :: IsEnv m => Map Text (RuntimeVal m)
 builtins = fromList 
   [ ("I" , DataFunction pure)
   , ("K" , DataFunction . const . pure $ DataFunction pure)
-  , ("F" , DataFunction $ \(DataFunction f) -> pure . DataFunction $ \x -> pure . DataFunction $ \y ->
-      do g' <- f y; let DataFunction g = g' in g x)
+  , ("C" , DataFunction $ \f -> pure . DataFunction $ \x -> pure . DataFunction $ \y ->
+      do g <- executeAsDataFunction f y; executeAsDataFunction g x)
   , ("+" , rankPolymorphicBinary $ (pure .) . (+))
   , ("-" , rankPolymorphicBinary $ (pure .) . (-))
   , ("*" , rankPolymorphicBinary $ (pure .) . (*))
@@ -64,16 +70,44 @@ builtins = fromList
   , ("!=", rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (/=))
   , ("i" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
   , (":" , DataFunction $ \x -> pure . DataFunction $ \y -> pure (concatValues x y))
+  , ("map", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) -> 
+    case x of
+      LRat _ -> executeAsDataFunction f x'
+      LList xs -> ComputedValue . LList <$> traverse (executeAsDataFunction f) xs)
+  , ("keep", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) -> 
+    ComputedValue <$> case x of
+      LRat _ -> do 
+        y <- executeAsDataFunction f x'
+        let ComputedValue (LRat p) = y 
+        pure . LList $ [x' | p > 0]
+      LList xs -> do
+        ps <- traverse (executeAsDataFunction f) xs
+        pure . LList $ [v | (v, ComputedValue (LRat p)) <- Data.List.zip xs ps, p > 0])
+  , ("fold", DataFunction $ \f -> pure . DataFunction $ \(ComputedValue x) -> 
+    case x of
+      LRat v -> pure . ComputedValue . LRat $ v
+      LList xs -> Data.List.foldl' (\a b -> do
+        g <- executeAsDataFunction f =<< a
+        executeAsDataFunction g b) (pure $ Data.List.head xs) (Data.List.tail xs))
+  , ("scan", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) -> 
+    ComputedValue <$> case x of
+      LRat _ -> pure . LList $ [x']
+      LList xs -> fmap LList . sequence $ Data.List.scanl' (\a b -> do
+        g <- executeAsDataFunction f =<< a
+        executeAsDataFunction g b) (pure $ Data.List.head xs) (Data.List.tail xs))
   ]
+
 -- NOTE(Maxime): this is actually needed for some reason
 builtinNames :: [Text]
 builtinNames 
   =  -- Combinators
-  ["I", "K", "F"]
+  ["I", "K", "C"]
   ++ -- Numbers
-  ["+", "-", "*", "/", "="]
+  ["+", "-", "*", "/", "="] -- TODO: >, >=, &&, ||
+  ++ -- Manipulations
+  ["fold", "scan", "map", "keep"] -- TODO: unfold
   ++ -- Arrays
-  ["i", ":"]
+  ["i", ":"] -- TODO: head, tail, take, rotate
 
 eval :: LambdaExpr -> RuntimeVal LEnv
 eval l = runReader (unEnv (foldFix exprAlgebra l)) empty
