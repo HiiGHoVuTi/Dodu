@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase, GeneralisedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, ConstraintKinds #-}
 module Interpreter (
+  Scope,
   eval, showVal
 ) where
 
@@ -13,7 +14,9 @@ import Data.Text hiding (empty, head, tail)
 import Lambda
 import Pretty
 
-newtype LEnv t = LEnv { unEnv :: Reader (Map Text (RuntimeVal LEnv)) t }
+type Scope = Map Text (RuntimeVal LEnv)
+
+newtype LEnv t = LEnv { unEnv :: Reader Scope t }
   deriving (Functor, Applicative, Monad)
 
 type IsEnv m = MonadReader (Map Text (RuntimeVal m)) m
@@ -153,8 +156,8 @@ builtinNames
   ++ -- Arrays
   ["i", ":", "::"]
 
-eval :: LambdaExpr -> RuntimeVal LEnv
-eval l = runReader (unEnv (foldFix exprAlgebra l)) empty
+eval :: Scope -> LambdaExpr -> RuntimeVal LEnv
+eval m l = runReader (unEnv (foldFix exprAlgebra l)) m
 
 exprAlgebra :: IsEnv m => Algebra LambdaF (m (RuntimeVal m))
 exprAlgebra =
