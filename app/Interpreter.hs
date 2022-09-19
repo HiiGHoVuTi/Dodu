@@ -39,19 +39,19 @@ concatValues _ _ = error ("sale rat" #Error)
 
 rankPolymorphicBinary' ::
   IsEnv m =>
-  (Rational -> Rational -> m Rational) ->
+  (Rational -> Rational -> m (RuntimeVal m)) ->
   RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
 rankPolymorphicBinary' f a' b' =
   case (a', b') of
-    (ComputedValue a, ComputedValue b) -> ComputedValue <$>
+    (ComputedValue a, ComputedValue b) ->
       case (a, b) of
-        (LRat x, LRat y) -> LRat <$> f x y
-        (LRat _, LList y) -> LList <$> traverse (rankPolymorphicBinary' f a') y
-        (LList x, LRat _) -> LList <$> traverse (flip (rankPolymorphicBinary' f) b') x
-        (LList x, LList y) -> LList <$> zipWithM (rankPolymorphicBinary' f) x y
+        (LRat x, LRat y) -> f x y
+        (LRat _, LList y) -> ComputedValue . LList <$> traverse (rankPolymorphicBinary' f a') y
+        (LList x, LRat _) -> ComputedValue . LList <$> traverse (flip (rankPolymorphicBinary' f) b') x
+        (LList x, LList y) -> ComputedValue . LList <$> zipWithM (rankPolymorphicBinary' f) x y
     _ -> error ("sale rat" #Error)
 
-rankPolymorphicBinary :: IsEnv m => (Rational -> Rational -> m Rational) -> RuntimeVal m
+rankPolymorphicBinary :: IsEnv m => (Rational -> Rational -> m (RuntimeVal m)) -> RuntimeVal m
 rankPolymorphicBinary f =
   DataFunction $ \a -> pure . DataFunction $ \b ->
   rankPolymorphicBinary' f a b
@@ -62,18 +62,18 @@ builtins = fromList
   , ("K" , DataFunction . const . pure $ DataFunction pure)
   , ("C" , DataFunction $ \f -> pure . DataFunction $ \x -> pure . DataFunction $ \y ->
       do g <- executeAsDataFunction f y; executeAsDataFunction g x)
-  , ("+" , rankPolymorphicBinary $ (pure .) . (+))
-  , ("-" , rankPolymorphicBinary $ (pure .) . (-))
-  , ("*" , rankPolymorphicBinary $ (pure .) . (*))
-  , ("/" , rankPolymorphicBinary $ (pure .) . (/))
-  , ("=" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (==))
-  , ("!=", rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (/=))
-  , (">" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (>))
-  , (">=" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (>=))
-  , ("<" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (<))
-  , ("<=" , rankPolymorphicBinary $ ((pure . toEnum . fromEnum) .) . (<=))
+  , ("+" , rankPolymorphicBinary $ (pureRat .) . (+))
+  , ("-" , rankPolymorphicBinary $ (pureRat .) . (-))
+  , ("*" , rankPolymorphicBinary $ (pureRat .) . (*))
+  , ("/" , rankPolymorphicBinary $ (pureRat .) . (/))
+  , ("=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (==))
+  , ("!=", rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (/=))
+  , (">" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (>))
+  , (">=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (>=))
+  , ("<" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (<))
+  , ("<=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (<=))
   , ("i" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
-  -- , ("::", rankPolymorphicBinary $ (pure .) . (\x y -> [x, y])) TODO: change rankPolymorphicBinary to accept this
+  , ("::", rankPolymorphicBinary $ \x y -> pure . ComputedValue . LList $ [ComputedValue (LRat x), ComputedValue (LRat y)])
   , (":" , DataFunction $ \x -> pure . DataFunction $ \y -> pure (concatValues x y))
 
   , ("map", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
@@ -119,6 +119,7 @@ builtins = fromList
 
   , ("take", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
     ComputedValue <$> case (n', x) of
+      (LRat _, LRat _) -> pure x
       (LRat n, LList xs) -> pure . LList $ Data.List.take (fromEnum n) xs
       (_, _) -> error ("Bad arguments" #Error))
 
@@ -126,7 +127,7 @@ builtins = fromList
     ComputedValue <$> case (n', x) of
       (LRat n, LList xs) -> pure . LList $ rotate (fromEnum n) xs
                             where rotate :: Int -> [a] -> [a]
-                                  rotate a l = Data.List.drop a l ++ Data.List.take a l -- not sure about performance but easiest way to define
+                                  rotate a l = Data.List.zipWith const (Data.List.drop a (cycle l)) l
       (_, _) -> error ("Bad arguments" #Error))
 
   , ("nth", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
@@ -134,6 +135,7 @@ builtins = fromList
       (LRat n, LList xs) -> pure $ xs !! fromEnum n
       (_, _) -> error ("Bad arguments" #Error))
   ]
+  where pureRat = pure . ComputedValue . LRat
 
 -- NOTE(Maxime): this is actually needed for some reason
 builtinNames :: [Text]
@@ -149,7 +151,7 @@ builtinNames
   ++ -- misc ?
   ["nth"]
   ++ -- Arrays
-  ["i", ":"]
+  ["i", ":", "::"]
 
 eval :: LambdaExpr -> RuntimeVal LEnv
 eval l = runReader (unEnv (foldFix exprAlgebra l)) empty

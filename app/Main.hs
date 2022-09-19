@@ -46,6 +46,7 @@ repl = do
   getInputLine ("Dodu" #Operator ++ "> " #Parens) >>=
     \case
       Nothing -> pure ()
+      Just "" -> repl
       Just ":q" -> lift $ putStrLn "Thanks for using Dodu 🐧"
       Just r -> do
         lift $ 
