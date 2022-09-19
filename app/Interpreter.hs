@@ -65,6 +65,11 @@ builtins = fromList
   , ("K" , DataFunction . const . pure $ DataFunction pure)
   , ("C" , DataFunction $ \f -> pure . DataFunction $ \x -> pure . DataFunction $ \y ->
       do g <- executeAsDataFunction f y; executeAsDataFunction g x)
+  , ("D", DataFunction $ \a -> pure . DataFunction $ \b -> pure . DataFunction $ \c -> pure . DataFunction $ \d ->
+      do g <- executeAsDataFunction a b; h <- executeAsDataFunction c d; executeAsDataFunction g h)
+  , ("B", DataFunction $ \a -> pure . DataFunction $ \b -> pure . DataFunction $ \c ->
+      do g <- executeAsDataFunction b c; executeAsDataFunction a g)
+
   , ("+" , rankPolymorphicBinary $ (pureRat .) . (+))
   , ("-" , rankPolymorphicBinary $ (pureRat .) . (-))
   , ("*" , rankPolymorphicBinary $ (pureRat .) . (*))
@@ -174,7 +179,7 @@ builtins = fromList
 builtinNames :: [Text]
 builtinNames
   =  -- Combinators
-  ["I", "K", "C"]
+  ["I", "K", "C", "D", "B"]
   ++ -- Numbers
   ["+", "-", "*", "/"]
   ++ -- Comparison
