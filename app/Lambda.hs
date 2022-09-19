@@ -1,8 +1,9 @@
-{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveAnyClass, DeriveTraversable #-}
 module Lambda (
   Algebra,
   LambdaExpr, LambdaF(..),
   RuntimeVal(..), LambdaVal(..),
+  MultiArray(..), foldMultiArray,
   lVal, lAbs, lApp, lVar,
 ) where
 
@@ -36,3 +37,19 @@ lVal = wrapFix . LVal
 data RuntimeVal m
   = ComputedValue (LambdaVal (RuntimeVal m))
   | DataFunction (RuntimeVal m -> m (RuntimeVal m))
+  
+data MultiArray a
+  = Single a
+  | Many [MultiArray a]
+  deriving (Show, Functor, Foldable, Traversable)
+
+instance Applicative MultiArray where
+  pure = Single
+  (Single f) <*> (Single g) = Single (f g)
+  (Many fs) <*> g = Many [f <*> g | f <- fs]
+  f <*> (Many gs) = Many [f <*> g | g <- gs]
+
+foldMultiArray :: MultiArray (MultiArray a) -> MultiArray a
+foldMultiArray (Single (Single v)) = Single v
+foldMultiArray (Single (Many xs))  = Many xs
+foldMultiArray (Many xs) = Many . fmap foldMultiArray $ xs 

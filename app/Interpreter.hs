@@ -25,12 +25,35 @@ instance MonadReader (Map Text (RuntimeVal LEnv)) LEnv where
   ask = LEnv ask
   local f = LEnv . local f . unEnv
 
+
+rvToMa :: IsEnv m => RuntimeVal m -> m (MultiArray Rational)
+rvToMa  DataFunction{} = error ("Cannot use function as value" #Error)
+rvToMa (ComputedValue (LRat v)) = pure (Single v) 
+rvToMa (ComputedValue (LList xs)) = fmap Many . traverse rvToMa $ xs
+
+maToRv :: MultiArray Rational -> RuntimeVal m
+maToRv (Single v) = ComputedValue (LRat v)
+maToRv (Many xs) = ComputedValue . LList . fmap maToRv $ xs
+
+onMultiArray 
+  :: IsEnv m 
+  => (MultiArray Rational -> m (MultiArray Rational))
+  -> RuntimeVal m
+  -> m (RuntimeVal m)
+onMultiArray f x = maToRv <$> (rvToMa x >>= f)
+
+asmaf :: IsEnv m 
+  => (RuntimeVal m -> m (RuntimeVal m))
+  -> MultiArray Rational -> m (MultiArray Rational)
+asmaf f m = f (maToRv m) >>= rvToMa
+
 executeAsDataFunction :: IsEnv m => RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
 executeAsDataFunction f x =
   case f of
     ComputedValue z -> pure (ComputedValue z)
     DataFunction g -> g x
 
+-- TODO(Maxime): implement with onMultiArray
 concatValues :: RuntimeVal m -> RuntimeVal m -> RuntimeVal m
 concatValues a'@(ComputedValue a) b'@(ComputedValue b) =
   ComputedValue $ case (a, b) of
@@ -40,6 +63,7 @@ concatValues a'@(ComputedValue a) b'@(ComputedValue b) =
     (LList xs, LList ys) -> LList (xs ++ ys)
 concatValues _ _ = error ("sale rat" #Error)
 
+-- TODO(Maxime): implement with onMultiArray
 rankPolymorphicBinary' ::
   IsEnv m =>
   (Rational -> Rational -> m (RuntimeVal m)) ->
@@ -112,6 +136,15 @@ builtins = fromList
       LList xs -> fmap LList . sequence $ Data.List.scanl' (\a b -> do
         g <- executeAsDataFunction f =<< a
         executeAsDataFunction g b) (pure $ Data.List.head xs) (Data.List.tail xs))
+  
+  , ("outer", DataFunction $ \f' -> 
+       pure . DataFunction $ \a' -> pure . DataFunction $ \b' -> do 
+          a <- rvToMa a' ; b <- rvToMa b'
+          let f x y = f' `executeAsDataFunction` ComputedValue (LRat x) 
+                 >>= flip executeAsDataFunction (ComputedValue (LRat y))
+                 >>= rvToMa
+          z <- sequenceA $ f <$> a <*> b
+          pure . maToRv . foldMultiArray $ z)
 
   , ("head", DataFunction $ \x'@(ComputedValue x) ->
     case x of
@@ -142,8 +175,13 @@ builtins = fromList
                             where rotate :: Int -> [a] -> [a]
                                   rotate a l = Data.List.zipWith const (Data.List.drop a (cycle l)) l
       (_, _) -> error ("Bad arguments" #Error))
+  , ("rev", DataFunction $ \x ->
+    case x of
+      ComputedValue (LRat _) -> pure x
+      ComputedValue (LList xs) -> pure . ComputedValue . LList . Data.List.reverse $ xs
+      _ -> error ("Cannot reverse function" #Error))
 
-  -- NOTE(Maxime): please help
+  -- TODO(Maxime): implement with onMultiArray
   , ("nth", DataFunction $ \n' -> pure . DataFunction $ \x ->
     let
       select [] xs = xs
@@ -185,11 +223,11 @@ builtinNames
   ++ -- Comparison
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
-  ["map", "fold", "scan", "iter", "head", "last", "tail", "take", "rotate"]
+  ["map", "fold", "scan", "iter", "head", "last", "tail", "take", "rotate", "rev"]
   ++ -- misc ?
   ["nth", "keep", "sort"]
   ++ -- Arrays
-  ["i", ":", "::"]
+  ["i", ":", "::", "outer"]
 
 eval :: Scope -> LambdaExpr -> RuntimeVal LEnv
 eval m l = runReader (unEnv (foldFix exprAlgebra l)) m
