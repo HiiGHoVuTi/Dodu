@@ -113,6 +113,11 @@ builtins = fromList
       LRat _ -> pure x'
       LList [] -> error ("NotEnoughRatsError" #Error)
       LList xs -> pure (head xs))
+  , ("last", DataFunction $ \x'@(ComputedValue x) ->
+    case x of
+      LRat _ -> pure x'
+      LList [] -> error ("NotEnoughRatsError" #Error)
+      LList xs -> pure (Data.List.last xs))
 
   , ("tail", DataFunction $ \(ComputedValue x) ->
     ComputedValue <$> case x of
@@ -133,10 +138,35 @@ builtins = fromList
                                   rotate a l = Data.List.zipWith const (Data.List.drop a (cycle l)) l
       (_, _) -> error ("Bad arguments" #Error))
 
-  , ("nth", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
-    case (n', x) of
-      (LRat n, LList xs) -> pure $ xs !! fromEnum n
+  -- NOTE(Maxime): please help
+  , ("nth", DataFunction $ \n' -> pure . DataFunction $ \x ->
+    let
+      select [] xs = xs
+      select (n:ns) xs =
+        case xs of
+          ComputedValue (LList xs') ->
+            case n of
+              ComputedValue (LRat i) -> 
+                case (ns, xs' !! fromEnum i) of
+                  ([], z) -> z
+                  (_, z@(ComputedValue (LList _))) -> select ns z
+                  _ -> error ("Indexing a Rat" #Error)
+              _ -> error ("Please index with a Rat" #Error)
+          z@(ComputedValue (LRat _)) -> z 
+          _ -> error ("Indexing a function" #Error)
+    in pure $ case (n', x) of
+      (ComputedValue (LRat ___), ComputedValue (LList _)) -> select [n'] x
+      (ComputedValue (LList ns), ComputedValue (LList _)) -> select ns x
       (_, _) -> error ("Bad arguments" #Error))
+      
+  , ("sort", DataFunction $ \x'@(ComputedValue x) -> 
+    case x of
+      LRat _ -> pure x'
+      LList xs -> pure . ComputedValue . LList $ sortOn (\(ComputedValue (LRat v)) -> v) xs)
+  , ("iter", DataFunction $ \(ComputedValue (LRat n)) -> 
+      pure . DataFunction $ \(DataFunction f) -> 
+      pure . DataFunction $ \x'@(ComputedValue _) ->
+        fmap (ComputedValue . LList) . sequence $ Data.List.take (fromEnum n) (iterate (f =<<) $ pure x'))
   ]
   where pureRat = pure . ComputedValue . LRat
 
@@ -150,9 +180,9 @@ builtinNames
   ++ -- Comparison
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
-  ["map", "keep", "fold", "scan", "head", "tail", "take", "rotate"]
+  ["map", "fold", "scan", "iter", "head", "last", "tail", "take", "rotate"]
   ++ -- misc ?
-  ["nth"]
+  ["nth", "keep", "sort"]
   ++ -- Arrays
   ["i", ":", "::"]
 
