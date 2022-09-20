@@ -43,6 +43,11 @@ data MultiArray a
   | Many [MultiArray a]
   deriving (Show, Functor, Foldable, Traversable)
 
+instance Eq a => Eq (MultiArray a) where
+  Single a == Single b = a == b
+  Many xs == Many ys   = Prelude.all (uncurry (==)) $ Prelude.zip xs ys 
+  _ == _ = False
+
 instance Applicative MultiArray where
   pure = Single
   (Single f) <*> (Single g) = Single (f g)

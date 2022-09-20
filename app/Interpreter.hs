@@ -107,6 +107,8 @@ builtins = fromList
   , ("i" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
   , ("::", rankPolymorphicBinary $ \x y -> pure . ComputedValue . LList $ [ComputedValue (LRat x), ComputedValue (LRat y)])
   , (":" , DataFunction $ \x -> pure . DataFunction $ \y -> pure (concatValues x y))
+  , ("numerator", DataFunction $ onMultiArray $ pure . fmap ((%1).numerator))
+  , ("denominator", DataFunction $ onMultiArray $ pure . fmap ((%1).denominator))
 
   , ("map", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
     case x of
@@ -193,6 +195,8 @@ builtins = fromList
         flat = pure . Many . Prelude.foldr ((:).Single) []
       in onMultiArray flat)
 
+  -- TODO: x ∈ xs
+
   -- TODO(Maxime): implement with onMultiArray
   , ("nth", DataFunction $ \n' -> pure . DataFunction $ \x ->
     let
@@ -218,6 +222,14 @@ builtins = fromList
     case x of
       LRat _ -> pure x'
       LList xs -> pure . ComputedValue . LList $ sortOn (\(ComputedValue (LRat v)) -> v) xs)
+  , ("nub", DataFunction . onMultiArray $
+      let isMany (Many _) = True ; isMany _ = False
+          nub' (Single v) = pure (Single v)
+          nub' (Many xs)
+            | Prelude.null xs = pure $ Many []
+            | isMany (Prelude.head xs) = Many <$> traverse nub' xs
+            | otherwise = pure . Many $ nub xs
+        in nub')
   , ("iter", DataFunction $ \(ComputedValue (LRat n)) -> 
       pure . DataFunction $ \(DataFunction f) -> 
       pure . DataFunction $ \x'@(ComputedValue _) ->
@@ -231,12 +243,12 @@ builtinNames
   =  -- Combinators
   ["I", "K", "C", "D", "B"]
   ++ -- Numbers
-  ["+", "-", "*", "/"]
+  ["+", "-", "*", "/"] ++ ["numerator", "denominator"]
   ++ -- Comparison
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
   ["map", "fold", "scan", "iter", "head", "last", "tail", "take" 
-  ,"rotate", "rev", "transpose", "flat"]
+  ,"rotate", "rev", "transpose", "flat", "nub"]
   ++ -- misc ?
   ["nth", "keep", "sort"]
   ++ -- Arrays
