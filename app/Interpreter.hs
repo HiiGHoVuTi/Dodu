@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase, GeneralisedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, ConstraintKinds #-}
 module Interpreter (
   Scope,
-  eval, showVal
+  eval, showVal, valString
 ) where
 
 import Control.Monad
@@ -267,3 +267,12 @@ showVal (ComputedValue (LRat x))
   | otherwise          = show (numerator x) #Literal <> "/" #Parens <> show (denominator x) #Literal
 showVal (ComputedValue (LList xs)) = "[" #Parens <>  Data.List.intercalate " ; " (showVal <$> xs) <> "]" #Parens
 showVal DataFunction{} = "Cannot show Data Function" #Error
+
+valString :: RuntimeVal m -> String
+valString (ComputedValue (LRat x)) = pure (toEnum $ fromEnum x)
+valString (ComputedValue (LList xs))
+  | Prelude.null xs = "[]" #Parens
+  | isList (Prelude.head xs) = "[" #Parens <>  Data.List.intercalate " ; " (valString <$> xs) <> "]" #Parens
+  | otherwise = Prelude.concatMap valString xs
+  where isList (ComputedValue (LList _)) = True ; isList _ = False
+valString DataFunction{} = "Cannot show Data Function" #Error

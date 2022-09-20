@@ -50,11 +50,14 @@ repl scope = do
       Just "" -> repl scope
       Just ":q" -> lift $ putStrLn "Thanks for using Dodu 🐧"
       Just r ->
-        case parseProgram "repl" r of
+        let asStr = Prelude.take 2 r == ":s"
+            r' = if asStr then Prelude.drop 2 r else r
+            showV = if asStr then valString else showVal
+        in case parseProgram "repl" r' of
           -- not a program, so maybe an expr
           Left _ ->
-            case parseExpr "repl" r of
+            case parseExpr "repl" r' of
               Left e -> lift (print e)
-              Right p -> (lift . putStrLn . showVal) (eval scope p)
+              Right p -> (lift . putStrLn . showV) (eval scope p)
                 >> repl scope
           Right xs -> repl . flip Data.Map.union scope $ (eval scope <$> fromList xs)

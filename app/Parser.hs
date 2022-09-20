@@ -58,7 +58,12 @@ array :: Parser [LambdaExpr]
 array = char '[' *> exprParser `sepBy` (whiteSpace lexer *> char ';')  <* char ']'
 
 litParser :: Parser LambdaExpr 
-litParser = fmap (lVal . LRat) num <|> fmap (lVal . LList) array
+litParser = fmap sta (stringLiteral lexer) 
+        <|> fmap (lVal . LRat) num 
+        <|> fmap (lVal . LList) array
+  where
+    sta :: String -> LambdaExpr
+    sta = lVal . LList . fmap (lVal . LRat . toEnum . fromEnum)
 
 varParser :: Parser LambdaExpr
 varParser = wrapFix . LVar . pack <$> identifier lexer
