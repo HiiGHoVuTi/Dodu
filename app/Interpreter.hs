@@ -145,6 +145,13 @@ builtins = fromList
                  >>= rvToMa
           z <- sequenceA $ f <$> a <*> b
           pure . maToRv . foldMultiArray $ z)
+  
+  , ("transpose", DataFunction . onMultiArray $ \x ->
+    let asList (Single _) = error ("Cannot transpose 1D-Array" #Error)
+        asList (Many xs)  = xs 
+    in case x of
+      Single v -> pure (Single v)
+      Many xs -> pure . Many . fmap Many . Data.List.transpose . fmap asList $ xs)
 
   , ("head", DataFunction $ \x'@(ComputedValue x) ->
     case x of
@@ -223,7 +230,7 @@ builtinNames
   ++ -- Comparison
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
-  ["map", "fold", "scan", "iter", "head", "last", "tail", "take", "rotate", "rev"]
+  ["map", "fold", "scan", "iter", "head", "last", "tail", "take", "rotate", "rev", "transpose"]
   ++ -- misc ?
   ["nth", "keep", "sort"]
   ++ -- Arrays
@@ -251,7 +258,6 @@ exprAlgebra =
     LApp f' x' -> do
       f <- f'; x <- x'
       case f of
-        -- Closure t ctx e -> local (const (Data.Map.insert t x ctx)) e
         DataFunction df -> df x
         ComputedValue v -> (pure.ComputedValue) v
 
@@ -260,5 +266,4 @@ showVal (ComputedValue (LRat x))
   | denominator x == 1 = show (numerator x) #Literal
   | otherwise          = show (numerator x) #Literal <> "/" #Parens <> show (denominator x) #Literal
 showVal (ComputedValue (LList xs)) = "[" #Parens <>  Data.List.intercalate " ; " (showVal <$> xs) <> "]" #Parens
--- showVal Closure{}      = "Cannot show Closure" #Error
 showVal DataFunction{} = "Cannot show Data Function" #Error
