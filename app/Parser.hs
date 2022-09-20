@@ -51,7 +51,8 @@ parseProgram = parse programParser
 
 -- EXPRESSIONS
 num :: Parser Rational
-num = (%1) . read <$> many1 digit
+num =      (%1)    . read <$> many1 digit
+  <|> try ((%(-1)) . read <$> (char '-' *> many1 digit))
 
 array :: Parser [LambdaExpr]
 array = char '[' *> exprParser `sepBy` (whiteSpace lexer *> char ';')  <* char ']'
@@ -74,7 +75,7 @@ compositionParser = do
     in pure $ lAbs x (lApp g (lApp f (lVar x)))
 
 appParser :: Parser LambdaExpr
-appParser = do 
+appParser = do
   foldl1' lApp <$> many1 term'
 
 trainParser :: Parser LambdaExpr
