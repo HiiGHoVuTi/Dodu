@@ -182,11 +182,16 @@ builtins = fromList
                             where rotate :: Int -> [a] -> [a]
                                   rotate a l = Data.List.zipWith const (Data.List.drop a (cycle l)) l
       (_, _) -> error ("Bad arguments" #Error))
+
   , ("rev", DataFunction $ \x ->
     case x of
       ComputedValue (LRat _) -> pure x
       ComputedValue (LList xs) -> pure . ComputedValue . LList . Data.List.reverse $ xs
       _ -> error ("Cannot reverse function" #Error))
+
+  , ("flat", DataFunction $ let 
+        flat = pure . Many . Prelude.foldr ((:).Single) []
+      in onMultiArray flat)
 
   -- TODO(Maxime): implement with onMultiArray
   , ("nth", DataFunction $ \n' -> pure . DataFunction $ \x ->
@@ -230,7 +235,8 @@ builtinNames
   ++ -- Comparison
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
-  ["map", "fold", "scan", "iter", "head", "last", "tail", "take", "rotate", "rev", "transpose"]
+  ["map", "fold", "scan", "iter", "head", "last", "tail", "take" 
+  ,"rotate", "rev", "transpose", "flat"]
   ++ -- misc ?
   ["nth", "keep", "sort"]
   ++ -- Arrays
