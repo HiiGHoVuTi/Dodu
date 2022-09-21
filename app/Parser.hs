@@ -28,8 +28,8 @@ languageDef = emptyDef
   , caseSensitive   = True
   , identStart      = glyph
   , identLetter     = glyph
-  , reservedNames   = ["Dodu"]
-  , reservedOpNames = ["<-", "."]
+  , reservedNames   = ["Dodu", "."]
+  , reservedOpNames = ["<-"]
   }
 
 lexer :: TokenParser () 
@@ -38,14 +38,14 @@ lexer = makeTokenParser languageDef
 -- PROGRAMS
 declParser :: Parser (Text, LambdaExpr)
 declParser = do
-  _ <- string "Dodu" <* whiteSpace lexer
   i <- pack <$> identifier lexer
   _ <- reservedOp lexer "<-"
-  e <- exprParser
+  e <- exprParser <* char '.'
   return (i, e)
 
 programParser :: Parser Program
-programParser = many (whiteSpace lexer *> declParser) <* eof
+programParser = many (whiteSpace lexer *> declParser <* whiteSpace lexer)
+                <* eof
 
 parseProgram :: SourceName -> String -> Either ParseError Program
 parseProgram = parse programParser
