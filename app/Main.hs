@@ -4,6 +4,7 @@ module Main where
 import Control.Applicative hiding (empty)
 import Control.Monad.Trans
 import Data.Map
+import Data.Text (unpack)
 import Interpreter
 import Options.Applicative.Builder
 import Options.Applicative.Extra
@@ -58,6 +59,15 @@ repl scope = do
           Left _ ->
             case parseExpr "repl" r' of
               Left e -> lift (print e)
-              Right p -> (lift . putStrLn . showV) (eval scope p)
                 >> repl scope
-          Right xs -> repl . flip Data.Map.union scope $ (eval scope <$> fromList xs)
+              Right p -> 
+                case eval scope p of
+                  Right v -> (lift . putStrLn . showV) v
+                    >> repl scope
+                  Left e -> (lift . putStrLn . unpack) e
+                    >> repl scope
+          Right xs -> 
+            case sequence $ eval scope <$> fromList xs of
+              Right newScope -> repl $ Data.Map.union newScope scope
+              Left e -> (lift . putStrLn . unpack) e
+                    >> repl scope

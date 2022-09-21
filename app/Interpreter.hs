@@ -5,6 +5,7 @@ module Interpreter (
 ) where
 
 import Control.Monad
+import Control.Monad.Except
 import Control.Monad.Reader
 import Data.Fix
 import Data.List
@@ -16,18 +17,21 @@ import Pretty
 
 type Scope = Map Text (RuntimeVal LEnv)
 
-newtype LEnv t = LEnv { unEnv :: Reader Scope t }
+newtype LEnv t = LEnv { unEnv :: ExceptT Text (Reader Scope) t }
   deriving (Functor, Applicative, Monad)
 
-type IsEnv m = MonadReader (Map Text (RuntimeVal m)) m
+type IsEnv m = (MonadReader (Map Text (RuntimeVal m)) m, MonadError Text m)
 
 instance MonadReader (Map Text (RuntimeVal LEnv)) LEnv where
   ask = LEnv ask
   local f = LEnv . local f . unEnv
 
+instance MonadError Text LEnv where
+  throwError = LEnv . throwError
+  catchError (LEnv a) f = LEnv $ catchError a (unEnv.f)
 
 rvToMa :: IsEnv m => RuntimeVal m -> m (MultiArray Rational)
-rvToMa  DataFunction{} = error ("Cannot use function as value" #Error)
+rvToMa  DataFunction{} = throwError $ pack ("Cannot use function as value" #Error)
 rvToMa (ComputedValue (LRat v)) = pure (Single v) 
 rvToMa (ComputedValue (LList xs)) = fmap Many . traverse rvToMa $ xs
 
@@ -54,14 +58,14 @@ executeAsDataFunction f x =
     DataFunction g -> g x
 
 -- TODO(Maxime): implement with onMultiArray
-concatValues :: RuntimeVal m -> RuntimeVal m -> RuntimeVal m
+concatValues :: IsEnv m => RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
 concatValues a'@(ComputedValue a) b'@(ComputedValue b) =
-  ComputedValue $ case (a, b) of
+  pure . ComputedValue $ case (a, b) of
     (LRat _, LRat _) -> LList [a', b']
     (LList xs, LRat _) -> LList (xs ++ [b'])
     (LRat _, LList ys) -> LList (a' : ys)
     (LList xs, LList ys) -> LList (xs ++ ys)
-concatValues _ _ = error ("sale rat" #Error)
+concatValues _ _ = throwError $ pack ("sale rat" #Error)
 
 -- TODO(Maxime): implement with onMultiArray
 rankPolymorphicBinary' ::
@@ -76,7 +80,7 @@ rankPolymorphicBinary' f a' b' =
         (LRat _, LList y) -> ComputedValue . LList <$> traverse (rankPolymorphicBinary' f a') y
         (LList x, LRat _) -> ComputedValue . LList <$> traverse (flip (rankPolymorphicBinary' f) b') x
         (LList x, LList y) -> ComputedValue . LList <$> zipWithM (rankPolymorphicBinary' f) x y
-    _ -> error ("sale rat" #Error)
+    _ -> throwError $ pack ("sale rat" #Error)
 
 rankPolymorphicBinary :: IsEnv m => (Rational -> Rational -> m (RuntimeVal m)) -> RuntimeVal m
 rankPolymorphicBinary f =
@@ -106,7 +110,7 @@ builtins = fromList
   , ("<=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (<=))
   , ("i" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
   , ("::", rankPolymorphicBinary $ \x y -> pure . ComputedValue . LList $ [ComputedValue (LRat x), ComputedValue (LRat y)])
-  , (":" , DataFunction $ \x -> pure . DataFunction $ \y -> pure (concatValues x y))
+  , (":" , DataFunction $ \x -> pure . DataFunction $ \y -> concatValues x y)
   , ("numerator", DataFunction $ onMultiArray $ pure . fmap ((%1).numerator))
   , ("denominator", DataFunction $ onMultiArray $ pure . fmap ((%1).denominator))
 
@@ -148,6 +152,7 @@ builtins = fromList
           z <- sequenceA $ f <$> a <*> b
           pure . maToRv . foldMultiArray $ z)
   
+  -- FIXME(Maxime): use throwError
   , ("transpose", DataFunction . onMultiArray $ \x ->
     let asList (Single _) = error ("Cannot transpose 1D-Array" #Error)
         asList (Many xs)  = xs 
@@ -158,38 +163,38 @@ builtins = fromList
   , ("head", DataFunction $ \x'@(ComputedValue x) ->
     case x of
       LRat _ -> pure x'
-      LList [] -> error ("NotEnoughRatsError" #Error)
+      LList [] -> throwError $ pack ("NotEnoughRatsError" #Error)
       LList xs -> pure (head xs))
   , ("last", DataFunction $ \x'@(ComputedValue x) ->
     case x of
       LRat _ -> pure x'
-      LList [] -> error ("NotEnoughRatsError" #Error)
+      LList [] -> throwError $ pack ("NotEnoughRatsError" #Error)
       LList xs -> pure (Data.List.last xs))
 
   , ("tail", DataFunction $ \(ComputedValue x) ->
     ComputedValue <$> case x of
       LRat _ -> pure . LList $ []
-      LList [] -> error ("NotEnoughRatsError" #Error)
+      LList [] -> throwError $ pack ("NotEnoughRatsError" #Error)
       LList xs -> pure . LList . tail $ xs)
 
   , ("take", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
     ComputedValue <$> case (n', x) of
       (LRat _, LRat _) -> pure x
       (LRat n, LList xs) -> pure . LList $ Data.List.take (fromEnum n) xs
-      (_, _) -> error ("Bad arguments" #Error))
+      (_, _) -> throwError $ pack ("Bad arguments" #Error))
 
   , ("rotate", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
     ComputedValue <$> case (n', x) of
       (LRat n, LList xs) -> pure . LList $ rotate (fromEnum n) xs
                             where rotate :: Int -> [a] -> [a]
                                   rotate a l = Data.List.zipWith const (Data.List.drop a (cycle l)) l
-      (_, _) -> error ("Bad arguments" #Error))
+      (_, _) -> throwError $ pack ("Bad arguments" #Error))
 
   , ("rev", DataFunction $ \x ->
     case x of
       ComputedValue (LRat _) -> pure x
       ComputedValue (LList xs) -> pure . ComputedValue . LList . Data.List.reverse $ xs
-      _ -> error ("Cannot reverse function" #Error))
+      _ -> throwError $ pack ("Cannot reverse function" #Error))
 
   , ("flat", DataFunction $ let 
         flat = pure . Many . Prelude.foldr ((:).Single) []
@@ -198,6 +203,7 @@ builtins = fromList
   -- TODO: x ∈ xs
 
   -- TODO(Maxime): implement with onMultiArray
+  -- FIXME(Maxime): use throwError
   , ("nth", DataFunction $ \n' -> pure . DataFunction $ \x ->
     let
       select [] xs = xs
@@ -254,8 +260,8 @@ builtinNames
   ++ -- Arrays
   ["i", ":", "::", "outer"]
 
-eval :: Scope -> LambdaExpr -> RuntimeVal LEnv
-eval m l = runReader (unEnv (foldFix exprAlgebra l)) m
+eval :: Scope -> LambdaExpr -> Either Text (RuntimeVal LEnv)
+eval m l = runReader (runExceptT (unEnv (foldFix exprAlgebra l))) m
 
 exprAlgebra :: IsEnv m => Algebra LambdaF (m (RuntimeVal m))
 exprAlgebra =
@@ -268,7 +274,7 @@ exprAlgebra =
         e <- ask
         if t `member` e
           then pure (e ! t)
-          else error (("No function named " ++ unpack t) #Error)
+          else throwError $ pack (("No function named " ++ unpack t) #Error)
     LAbs t body -> do
       e <- ask
       pure . DataFunction $ \x -> do
