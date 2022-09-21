@@ -18,7 +18,7 @@ type Program = [(Text, LambdaExpr)]
 
 -- LANGUAGE
 glyph :: Parser Char
-glyph = noneOf $ " (){}[],;"++['0'..'9']
+glyph = noneOf $ " (){}[],;\n\t"++['0'..'9']
 
 languageDef :: LanguageDef ()
 languageDef = emptyDef
@@ -29,7 +29,7 @@ languageDef = emptyDef
   , identStart      = glyph
   , identLetter     = glyph
   , reservedNames   = ["Dodu"]
-  , reservedOpNames = ["<-"]
+  , reservedOpNames = ["<-", "."]
   }
 
 lexer :: TokenParser () 
@@ -38,13 +38,14 @@ lexer = makeTokenParser languageDef
 -- PROGRAMS
 declParser :: Parser (Text, LambdaExpr)
 declParser = do
+  _ <- string "Dodu" <* whiteSpace lexer
   i <- pack <$> identifier lexer
   _ <- reservedOp lexer "<-"
   e <- exprParser
   return (i, e)
 
 programParser :: Parser Program
-programParser = many declParser <* eof
+programParser = many (whiteSpace lexer *> declParser) <* eof
 
 parseProgram :: SourceName -> String -> Either ParseError Program
 parseProgram = parse programParser

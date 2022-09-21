@@ -2,6 +2,7 @@
 module Main where
 
 import Control.Applicative hiding (empty)
+import Control.Monad
 import Control.Monad.Trans
 import Data.Map
 import Data.Text (unpack)
@@ -41,7 +42,19 @@ main = execParser opts >>= execCommand
 execCommand :: Command -> IO ()
 execCommand CommandHi = putStrLn ("Hi, Dodu !" #Field)
 execCommand (CommandRepl Nothing) = runInputT defaultSettings (repl empty)
-execCommand (CommandRepl (Just _)) = putStrLn ("Coming soon..." #Error)
+execCommand (CommandRepl (Just filepath)) = do
+  contents <- readFile filepath
+  case parseProgram filepath contents of
+    Left e -> print e
+    Right xs -> 
+      case foldM run empty xs of
+        Left e -> print e
+        Right scope -> runInputT defaultSettings (repl scope)
+    where
+      run m (i, p) =
+        case eval m p of
+          Left e -> Left e
+          Right v -> Right $ Data.Map.insert i v m
 
 repl :: Scope -> InputT IO ()
 repl scope = do
