@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveAnyClass, DeriveTraversable #-}
+{-# LANGUAGE DeriveTraversable #-}
 module Lambda (
   Algebra,
   LambdaExpr, LambdaF(..),
