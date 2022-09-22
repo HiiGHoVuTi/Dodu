@@ -17,6 +17,8 @@ import Pretty
 
 type Scope = Map Text (RuntimeVal LEnv)
 
+type Rat = Ratio Int
+
 newtype LEnv t = LEnv { unEnv :: ExceptT Text (Reader Scope) t }
   deriving (Functor, Applicative, Monad)
 
@@ -30,25 +32,25 @@ instance MonadError Text LEnv where
   throwError = LEnv . throwError
   catchError (LEnv a) f = LEnv $ catchError a (unEnv.f)
 
-rvToMa :: IsEnv m => RuntimeVal m -> m (MultiArray Rational)
+rvToMa :: IsEnv m => RuntimeVal m -> m (MultiArray Rat)
 rvToMa  DataFunction{} = throwError $ pack ("Cannot use function as value" #Error)
 rvToMa (ComputedValue (LRat v)) = pure (Single v) 
 rvToMa (ComputedValue (LList xs)) = fmap Many . traverse rvToMa $ xs
 
-maToRv :: MultiArray Rational -> RuntimeVal m
+maToRv :: MultiArray Rat -> RuntimeVal m
 maToRv (Single v) = ComputedValue (LRat v)
 maToRv (Many xs) = ComputedValue . LList . fmap maToRv $ xs
 
 onMultiArray 
   :: IsEnv m 
-  => (MultiArray Rational -> m (MultiArray Rational))
+  => (MultiArray Rat -> m (MultiArray Rat))
   -> RuntimeVal m
   -> m (RuntimeVal m)
 onMultiArray f x = maToRv <$> (rvToMa x >>= f)
 
 asmaf :: IsEnv m 
   => (RuntimeVal m -> m (RuntimeVal m))
-  -> MultiArray Rational -> m (MultiArray Rational)
+  -> MultiArray Rat -> m (MultiArray Rat)
 asmaf f m = f (maToRv m) >>= rvToMa
 
 executeAsDataFunction :: IsEnv m => RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
@@ -70,7 +72,7 @@ concatValues _ _ = throwError $ pack ("sale rat" #Error)
 -- TODO(Maxime): implement with onMultiArray
 rankPolymorphicBinary' ::
   IsEnv m =>
-  (Rational -> Rational -> m (RuntimeVal m)) ->
+  (Rat -> Rat -> m (RuntimeVal m)) ->
   RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
 rankPolymorphicBinary' f a' b' =
   case (a', b') of
@@ -82,7 +84,7 @@ rankPolymorphicBinary' f a' b' =
         (LList x, LList y) -> ComputedValue . LList <$> zipWithM (rankPolymorphicBinary' f) x y
     _ -> throwError $ pack ("sale rat" #Error)
 
-rankPolymorphicBinary :: IsEnv m => (Rational -> Rational -> m (RuntimeVal m)) -> RuntimeVal m
+rankPolymorphicBinary :: IsEnv m => (Rat -> Rat -> m (RuntimeVal m)) -> RuntimeVal m
 rankPolymorphicBinary f =
   DataFunction $ \a -> pure . DataFunction $ \b ->
   rankPolymorphicBinary' f a b

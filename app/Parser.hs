@@ -51,7 +51,7 @@ parseProgram :: SourceName -> String -> Either ParseError Program
 parseProgram = parse programParser
 
 -- EXPRESSIONS
-num :: Parser Rational
+num :: Parser (Ratio Int)
 num =      (%1)    . read <$> many1 digit
   <|> try ((%(-1)) . read <$> (char '-' *> many1 digit))
 
