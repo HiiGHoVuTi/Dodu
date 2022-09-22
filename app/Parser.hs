@@ -18,7 +18,7 @@ type Program = [(Text, LambdaExpr)]
 
 -- LANGUAGE
 glyph :: Parser Char
-glyph = noneOf $ " (){}[],;\n\t"++['0'..'9']
+glyph = noneOf $ " (){}[],;\n\t\\."++['0'..'9']
 
 languageDef :: LanguageDef ()
 languageDef = emptyDef
@@ -28,7 +28,7 @@ languageDef = emptyDef
   , caseSensitive   = True
   , identStart      = glyph
   , identLetter     = glyph
-  , reservedNames   = ["Dodu", "."]
+  , reservedNames   = ["Dodu", ".", "\\"]
   , reservedOpNames = ["<-"]
   }
 
@@ -99,8 +99,16 @@ trainParser = char '{' *> fmap toTrain (many1 term') <* char '}'
       in lAbs x (lApp (lApp b (lApp a (lVar x))) (lApp c (lVar x)))
     toTrain o = error $ show (length o) ++ "-trains not yet defined !" 
 
+lambdaParser :: Parser LambdaExpr
+lambdaParser = do
+  _ <- whiteSpace lexer *> char '\\'
+  names <- many1 (identifier lexer)
+  _ <- whiteSpace lexer *> char '.'
+  body <- exprParser
+  pure $ Data.List.foldl' (flip lAbs) body (pack <$> Data.List.reverse names)
+
 exprParser :: Parser LambdaExpr
-exprParser = try compositionParser <|> try appParser <|> term'
+exprParser = try lambdaParser <|> try compositionParser <|> try appParser <|> term'
 
 parseExpr :: SourceName -> String -> Either ParseError LambdaExpr
 parseExpr = parse (exprParser <* eof)
