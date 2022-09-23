@@ -32,7 +32,7 @@ instance MonadError Text LEnv where
   throwError = LEnv . throwError
   catchError (LEnv a) f = LEnv $ catchError a (unEnv.f)
 
-rvToMa :: IsEnv m => RuntimeVal m -> m (MultiArray Rat)
+rvToMa :: MonadError Text m => RuntimeVal a -> m (MultiArray Rat)
 rvToMa  DataFunction{} = throwError $ pack ("Cannot use function as value" #Error)
 rvToMa (ComputedValue (LRat v)) = pure (Single v) 
 rvToMa (ComputedValue (LList xs)) = fmap Many . traverse rvToMa $ xs
@@ -288,11 +288,57 @@ exprAlgebra =
         ComputedValue v -> (pure.ComputedValue) v
 
 showVal :: RuntimeVal m -> String
+showVal x = case rvToMa x of
+  Left _ -> "Cannot show Data Function" #Error
+  Right m -> render m
+  where
+    length' = flip length'' True
+    length'' "" _ = 0
+    length'' "\n" _ = 0 
+    length'' ('\ESC':zs) True = length'' zs False
+    length'' (_:zs) True = 1 + length'' zs True
+    length'' ('m':zs) False = length'' zs True
+    length'' (_:zs) False = length'' zs False
+    
+    borders = Parens
+    
+    depth (Single _) = 0 :: Int; depth (Many []) = 1; depth (Many xs) = 1 + Data.List.minimum (depth <$> xs)
+    
+    render (Single v)
+      | denominator v == 1 = show (numerator v) #Literal
+      | otherwise          = show (numerator v) #Literal <> "/" #Operator <> show (denominator v) #Literal
+    render v@(Many xs)
+      | depth v == 1 = let
+          els  = render <$> xs
+          text = Data.List.intercalate (" │ " #borders) els
+          vert c = Data.List.intercalate c
+            [ Data.List.replicate (length' e + 2) '─' | e <- els ]
+        in ("╭"  ++ vert "┬" ++  "╮\n") #borders
+        ++ "│ " #borders ++ text ++ " │\n" #borders
+        ++ ("╰"  ++ vert "┴" ++  "╯") #borders
+      | depth v == 2 = let
+          toList' (Single _) = error "unreachable"; toList' (Many z) = z
+          mat = (fmap.fmap) ((++ " ").render) $ toList' <$> xs
+          width  = Data.List.maximum
+            $ fmap Data.List.maximum . Data.List.transpose 
+            $ (fmap.fmap) length' mat
+          vert c = Data.List.intercalate c
+            [ Data.List.replicate (width+1) '─' | _ <- head mat ]
+        in ("╭" ++ vert "┬"  ++ "╮\n") #borders
+        ++ Data.List.intercalate (("\n├" ++ vert "┼" ++ "┤\n") #borders) 
+          ["│ " #borders ++ Data.List.intercalate ("│ " #borders) 
+            [Data.List.replicate (width - length' r) ' ' ++ r | r <- row] 
+          ++  "│" #borders | row <- mat] ++ "\n"
+        ++ ("╰"  ++ vert "┴" ++  "╯") #borders
+      | otherwise = render (head xs) ++ "\n(" #Parens
+          ++ "only showing first slice" #Field ++ ")" #Parens
+{- 
 showVal (ComputedValue (LRat x))
   | denominator x == 1 = show (numerator x) #Literal
   | otherwise          = show (numerator x) #Literal <> "/" #Parens <> show (denominator x) #Literal
 showVal (ComputedValue (LList xs)) = "[" #Parens <>  Data.List.intercalate " ; " (showVal <$> xs) <> "]" #Parens
 showVal DataFunction{} = "Cannot show Data Function" #Error
+-}
 
 valString :: RuntimeVal m -> String
 valString (ComputedValue (LRat x)) = pure (toEnum $ fromEnum x)
