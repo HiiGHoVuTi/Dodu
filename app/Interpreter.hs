@@ -157,7 +157,7 @@ builtins = fromList
   -- FIXME(Maxime): use throwError
   , ("transpose", DataFunction . onMultiArray $ \x ->
     let asList (Single _) = error ("Cannot transpose 1D-Array" #Error)
-        asList (Many xs)  = xs 
+        asList (Many xs)  = xs
     in case x of
       Single v -> pure (Single v)
       Many xs -> pure . Many . fmap Many . Data.List.transpose . fmap asList $ xs)
@@ -203,6 +203,7 @@ builtins = fromList
       in onMultiArray flat)
 
   -- TODO: x ∈ xs
+  -- TODO: reshape ρ
 
   -- TODO(Maxime): implement with onMultiArray
   -- FIXME(Maxime): use throwError
@@ -318,16 +319,17 @@ showVal x = case rvToMa x of
         ++ ("╰"  ++ vert "┴" ++  "╯") #borders
       | depth v == 2 = let
           toList' (Single _) = error "unreachable"; toList' (Many z) = z
-          mat = (fmap.fmap) ((++ " ").render) $ toList' <$> xs
-          width  = Data.List.maximum
-            $ fmap Data.List.maximum . Data.List.transpose 
+          mxL = Data.List.maximum . fmap Data.List.length $ xs
+          pad zs = zs ++ Data.List.replicate (mxL - Prelude.length zs) ""
+          mat = fmap (pad . fmap ((++ " ").render)) $ toList' <$> xs
+          widths = fmap Data.List.maximum . Data.List.transpose 
             $ (fmap.fmap) length' mat
           vert c = Data.List.intercalate c
-            [ Data.List.replicate (width+1) '─' | _ <- head mat ]
+            [ Data.List.replicate (w+1) '─' | (w,_) <- Prelude.zip widths (head mat) ]
         in ("╭" ++ vert "┬"  ++ "╮\n") #borders
         ++ Data.List.intercalate (("\n├" ++ vert "┼" ++ "┤\n") #borders) 
           ["│ " #borders ++ Data.List.intercalate ("│ " #borders) 
-            [Data.List.replicate (width - length' r) ' ' ++ r | r <- row] 
+            [Data.List.replicate (w - length' r) ' ' ++ r | (w, r) <- Prelude.zip widths row] 
           ++  "│" #borders | row <- mat] ++ "\n"
         ++ ("╰"  ++ vert "┴" ++  "╯") #borders
       | otherwise = render (head xs) ++ "\n(" #Parens
