@@ -314,6 +314,7 @@ showVal x = case rvToMa x of
           text = Data.List.intercalate (" │ " #borders) els
           vert c = Data.List.intercalate c
             [ Data.List.replicate (length' e + 2) '─' | e <- els ]
+            ++ if Prelude.null els then "──" else ""
         in ("╭"  ++ vert "┬" ++  "╮\n") #borders
         ++ "│ " #borders ++ text ++ " │\n" #borders
         ++ ("╰"  ++ vert "┴" ++  "╯") #borders
