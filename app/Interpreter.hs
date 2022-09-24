@@ -135,10 +135,10 @@ builtins = fromList
 
   , ("indices", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
     ComputedValue <$> case x of
-      LRat _ -> do
-        y <- executeAsDataFunction f x'
-        let ComputedValue (LRat p) = y
-        pure . LList $ [ComputedValue (LRat 0) | p > 0]
+      LRat _ -> executeAsDataFunction f x'
+        >>= \case
+          ComputedValue (LRat p) -> pure . LList $ [ComputedValue (LRat 0) | p > 0]
+          _ -> throwError "Cannot use function or array as an index" 
       LList xs -> do
         ps <- traverse (executeAsDataFunction f) xs
         pure . LList $ [ComputedValue (LRat i) | (i, ComputedValue (LRat p)) <- Data.List.zip [0..] ps, p > 0])
@@ -347,13 +347,6 @@ showVal x = case rvToMa x of
         ++ ("╰"  ++ vert "┴" ++  "╯") #borders
       | otherwise = render (head xs) ++ "\n(" #Parens
           ++ "only showing first slice" #Field ++ ")" #Parens
-{- 
-showVal (ComputedValue (LRat x))
-  | denominator x == 1 = show (numerator x) #Literal
-  | otherwise          = show (numerator x) #Literal <> "/" #Parens <> show (denominator x) #Literal
-showVal (ComputedValue (LList xs)) = "[" #Parens <>  Data.List.intercalate " ; " (showVal <$> xs) <> "]" #Parens
-showVal DataFunction{} = "Cannot show Data Function" #Error
--}
 
 valString :: RuntimeVal m -> String
 valString (ComputedValue (LRat x)) = pure (toEnum $ fromEnum x)
