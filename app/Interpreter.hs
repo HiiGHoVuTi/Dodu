@@ -99,6 +99,8 @@ builtins = fromList
       do g <- executeAsDataFunction a b; h <- executeAsDataFunction c d; executeAsDataFunction g h)
   , ("B", DataFunction $ \a -> pure . DataFunction $ \b -> pure . DataFunction $ \c ->
       do g <- executeAsDataFunction b c; executeAsDataFunction a g)
+  , ("M", DataFunction $ \a -> pure . DataFunction $ \b ->
+      do ab <- executeAsDataFunction a b; executeAsDataFunction ab b)
 
   , ("+" , rankPolymorphicBinary $ (pureRat .) . (+))
   , ("-" , rankPolymorphicBinary $ (pureRat .) . (-))
@@ -130,6 +132,16 @@ builtins = fromList
       LList xs -> do
         ps <- traverse (executeAsDataFunction f) xs
         pure . LList $ [v | (v, ComputedValue (LRat p)) <- Data.List.zip xs ps, p > 0])
+
+  , ("indices", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
+    ComputedValue <$> case x of
+      LRat _ -> do
+        y <- executeAsDataFunction f x'
+        let ComputedValue (LRat p) = y
+        pure . LList $ [ComputedValue (LRat 0) | p > 0]
+      LList xs -> do
+        ps <- traverse (executeAsDataFunction f) xs
+        pure . LList $ [ComputedValue (LRat i) | (i, ComputedValue (LRat p)) <- Data.List.zip [0..] ps, p > 0])
 
   , ("fold", DataFunction $ \f -> pure . DataFunction $ \(ComputedValue x) ->
     case x of
@@ -250,14 +262,14 @@ builtins = fromList
 builtinNames :: [Text]
 builtinNames
   =  -- Combinators
-  ["I", "K", "C", "D", "B"]
+  ["I", "K", "C", "D", "B", "M"]
   ++ -- Numbers
   ["+", "-", "*", "/"] ++ ["numerator", "denominator"]
   ++ -- Comparison
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
   ["map", "fold", "scan", "iter", "head", "last", "tail", "take" 
-  ,"rotate", "rev", "transpose", "flat", "nub"]
+  ,"rotate", "rev", "transpose", "flat", "nub", "indices"]
   ++ -- misc ?
   ["nth", "keep", "sort"]
   ++ -- Arrays
