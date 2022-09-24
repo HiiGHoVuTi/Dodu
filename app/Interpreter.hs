@@ -7,6 +7,8 @@ module Interpreter (
 import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Reader
+import Control.Monad.State
+import Data.Foldable
 import Data.Fix
 import Data.List
 import Data.Map
@@ -166,13 +168,34 @@ builtins = fromList
           z <- sequenceA $ f <$> a <*> b
           pure . maToRv . foldMultiArray $ z)
   
-  -- FIXME(Maxime): use throwError
   , ("transpose", DataFunction . onMultiArray $ \x ->
-    let asList (Single _) = error ("Cannot transpose 1D-Array" #Error)
-        asList (Many xs)  = xs
+    let asList (Single _) = throwError $ pack ("Cannot transpose 1D-Array" #Error)
+        asList (Many xs)  = pure xs
     in case x of
       Single v -> pure (Single v)
-      Many xs -> pure . Many . fmap Many . Data.List.transpose . fmap asList $ xs)
+      Many xs -> fmap (Many . fmap Many . Data.List.transpose) . mapM asList $ xs)
+  
+  , ("reshape", DataFunction $ \shape' -> pure . DataFunction . onMultiArray $ \x ->
+      let isRat (ComputedValue (LRat _)) = True ; isRat _ = False
+          asRat (ComputedValue (LRat r)) = r    ; asRat _ = undefined
+      in case shape' of
+        ComputedValue (LRat (-1)) -> pure . Many . fmap Single . Data.Foldable.toList $ x
+        ComputedValue (LRat 0) -> pure . Many $ []
+        ComputedValue (LRat p) -> let
+            l = Data.Foldable.toList x
+          in if Prelude.length l == fromEnum p
+            then pure . Many . fmap Single $ l
+            else throwError $ pack ("Incorrect dimensions for reshape" #Error) 
+        ComputedValue (LList shape'')
+          | Prelude.all isRat shape'' -> let
+            shape = fromEnum . asRat <$> shape''
+            l = Data.Foldable.toList x
+            -- TODO(Maxime): -1 dims for greedy takes
+            fill [] = pure x
+            fill [n] = gets (Many . fmap Single . Prelude.take n) <* modify (Prelude.drop n)
+            fill (n:ns) = Many <$> replicateM n (fill ns)
+          in evalStateT (fill shape) l
+        _ -> throwError $ pack ("Cannot use function as shape" #Error))
 
   , ("head", DataFunction $ \x'@(ComputedValue x) ->
     case x of
@@ -269,7 +292,7 @@ builtinNames
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
   ["map", "fold", "scan", "iter", "head", "last", "tail", "take" 
-  ,"rotate", "rev", "transpose", "flat", "nub", "indices"]
+  ,"rotate", "rev", "transpose", "flat", "nub", "indices", "reshape"]
   ++ -- misc ?
   ["nth", "keep", "sort"]
   ++ -- Arrays
@@ -300,8 +323,8 @@ exprAlgebra =
         DataFunction df -> df x
         ComputedValue v -> (pure.ComputedValue) v
 
-showVal :: RuntimeVal m -> String
-showVal x = case rvToMa x of
+showVal :: Int -> RuntimeVal m -> String
+showVal size' x = case rvToMa x of
   Left _ -> "Cannot show Data Function" #Error
   Right m -> render m
   where
@@ -316,13 +339,16 @@ showVal x = case rvToMa x of
     borders = Parens
     
     depth (Single _) = 0 :: Int; depth (Many []) = 1; depth (Many xs) = 1 + Data.List.minimum (depth <$> xs)
+    shorten c xs
+      | Prelude.length xs <= size' = xs
+      | otherwise = Prelude.take (size' - 1) xs ++ [c]
     
     render (Single v)
       | denominator v == 1 = show (numerator v) #Literal
       | otherwise          = show (numerator v) #Literal <> "/" #Operator <> show (denominator v) #Literal
     render v@(Many xs)
       | depth v == 1 = let
-          els  = render <$> xs
+          els  = shorten "…" $ render <$> xs
           text = Data.List.intercalate (" │ " #borders) els
           vert c = Data.List.intercalate c
             [ Data.List.replicate (length' e + 2) '─' | e <- els ]
@@ -334,7 +360,8 @@ showVal x = case rvToMa x of
           toList' (Single _) = error "unreachable"; toList' (Many z) = z
           mxL = Data.List.maximum . fmap Data.List.length $ xs
           pad zs = zs ++ Data.List.replicate (mxL - Prelude.length zs) ""
-          mat = fmap (pad . fmap ((++ " ").render)) $ toList' <$> xs
+          mat' = fmap (shorten "… " . pad . fmap ((++ " ").render)) $ toList' <$> xs
+          mat = shorten (Prelude.replicate (min (Prelude.length mat') size' - 1) "⋮ " ++ ["⋱ "]) mat'
           widths = fmap Data.List.maximum . Data.List.transpose 
             $ (fmap.fmap) length' mat
           vert c = Data.List.intercalate c
@@ -348,6 +375,7 @@ showVal x = case rvToMa x of
       | otherwise = render (head xs) ++ "\n(" #Parens
           ++ "only showing first slice" #Field ++ ")" #Parens
 
+-- TODO(Maxime): pretty matrices too ??
 valString :: RuntimeVal m -> String
 valString (ComputedValue (LRat x)) = pure (toEnum $ fromEnum x)
 valString (ComputedValue (LList xs))

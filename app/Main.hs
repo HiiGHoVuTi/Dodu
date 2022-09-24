@@ -66,7 +66,7 @@ repl scope = do
       Just r ->
         let asStr = Prelude.take 2 r == ":s"
             r' = if asStr then Prelude.drop 2 r else r
-            showV = if asStr then valString else showVal
+            showV = if asStr then valString else showVal 16
         in case parseProgram "repl" r' of
           -- not a program, so maybe an expr
           Left _ ->
