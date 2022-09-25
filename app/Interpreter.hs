@@ -13,14 +13,14 @@ import Data.Foldable
 import Data.Fix
 import Data.List
 import Data.Map
-import Data.Ratio
+import Data.RatioInt
 import Data.Text hiding (empty, head, tail)
 import Lambda
 import Pretty
 
 type Scope = Map Text (RuntimeVal LEnv)
 
-type Rat = Ratio Int
+type Rat = RatioInt
 
 newtype LEnv t = LEnv { unEnv :: ExceptT Text (Reader Scope) t }
   deriving (Functor, Applicative, Monad)

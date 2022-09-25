@@ -33,6 +33,7 @@ executable Dodu
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     build-depends:    base ^>=4.15.1.0
+                    , ratio-int
                     , mtl
                     , text
                     , parsec

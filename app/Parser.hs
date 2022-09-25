@@ -6,7 +6,7 @@ module Parser (
 
 import Data.Fix
 import Data.List
-import Data.Ratio
+import Data.RatioInt
 import Data.Text hiding (foldl1', length, zipWith, take)
 import Lambda
 import Text.Parsec
@@ -28,7 +28,7 @@ languageDef = emptyDef
   , caseSensitive   = True
   , identStart      = glyph
   , identLetter     = glyph
-  , reservedNames   = ["Dodu", ".", "\\"]
+  , reservedNames   = ["Dodu", ".", "\\", "@"]
   , reservedOpNames = ["<-"]
   }
 
@@ -38,20 +38,21 @@ lexer = makeTokenParser languageDef
 -- PROGRAMS
 declParser :: Parser (Text, LambdaExpr)
 declParser = do
+  _ <- whiteSpace lexer
   i <- pack <$> identifier lexer
   _ <- reservedOp lexer "<-"
   e <- exprParser <* char '.'
+  _ <- whiteSpace lexer
   return (i, e)
 
 programParser :: Parser Program
-programParser = many (whiteSpace lexer *> declParser <* whiteSpace lexer)
-                <* eof
+programParser = many declParser <* eof
 
 parseProgram :: SourceName -> String -> Either ParseError Program
 parseProgram = parse programParser
 
 -- EXPRESSIONS
-num :: Parser (Ratio Int)
+num :: Parser RatioInt
 num =      (%1)    . read <$> many1 digit
   <|> try ((%(-1)) . read <$> (char '-' *> many1 digit))
 
@@ -107,8 +108,18 @@ lambdaParser = do
   body <- exprParser
   pure $ Data.List.foldl' (flip lAbs) body (pack <$> Data.List.reverse names)
 
+letParser :: Parser LambdaExpr
+letParser = do
+  _ <- whiteSpace lexer *> char '@' <* whiteSpace lexer
+  elems <- parens lexer (many1 declParser)
+  body <- exprParser
+  pure $ Data.List.foldl' doTheLet body elems 
+  where
+    doTheLet body (name, value) = lApp (lAbs name body) value
+  
+
 exprParser :: Parser LambdaExpr
-exprParser = try lambdaParser <|> try compositionParser <|> try appParser <|> term'
+exprParser = try letParser <|> try lambdaParser <|> try compositionParser <|> try appParser <|> term'
 
 parseExpr :: SourceName -> String -> Either ParseError LambdaExpr
 parseExpr = parse (exprParser <* eof)

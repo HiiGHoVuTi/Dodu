@@ -66,7 +66,7 @@ execCommand (CommandRepl (Just filepath)) = do
     Left e -> print e
     Right xs -> 
       case foldM run empty xs of
-        Left e -> print e
+        Left e -> putStrLn . unpack $ e
         Right scope -> flip runReaderT scope $ runInputT settings repl
     where
       run m (i, p) =
