@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, LambdaCase, GeneralisedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, ConstraintKinds #-}
+{-# LANGUAGE OverloadedStrings, NumericUnderscores, LambdaCase, GeneralisedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, ConstraintKinds #-}
 module Interpreter (
   Scope,
   eval, showVal, valString,
@@ -280,7 +280,16 @@ builtins = fromList
       pure . DataFunction $ \x'@(ComputedValue _) ->
         fmap (ComputedValue . LList) . sequence $ Data.List.take (fromEnum n) (iterate (f =<<) $ pure x'))
   ]
-  where pureRat = pure . ComputedValue . LRat
+  where pureRat = pure . ComputedValue . LRat . continuousApprox
+        continuousApprox x
+          | denominator x > 1_000_000_000 = approx' 5 x
+          | otherwise = x
+        approx' :: Int -> RatioInt -> RatioInt 
+        approx' n x = 
+          let w = floor x % 1
+              f = x - w
+          in if f == 0 || n == 0 then w
+             else w + 1 / approx' (n-1) (1/f)
 
 -- NOTE(Maxime): this is actually needed for some reason
 builtinNames :: [Text]

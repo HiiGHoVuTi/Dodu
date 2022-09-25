@@ -43,7 +43,7 @@ main = execParser opts >>= execCommand
 settings :: Settings (ReaderT Scope IO)
 settings = Settings
   -- TODO: Something moe sophisticated
-  { complete = completeWord Nothing "\t \n" $ \startOfWord -> do
+  { complete = completeWord Nothing "()\t \n" $ \startOfWord -> do
       inScope <- asks (fmap unpack . Data.Map.keys)
       let possibleWords = Prelude.filter (isPrefixOf startOfWord) (fmap unpack builtinNames ++ inScope)
           completions = fmap (\w -> Completion
