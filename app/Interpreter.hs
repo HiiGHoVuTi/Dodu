@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings, LambdaCase, GeneralisedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, ConstraintKinds #-}
 module Interpreter (
   Scope,
-  eval, showVal, valString
+  eval, showVal, valString,
+  builtinNames
 ) where
 
 import Control.Monad
@@ -122,8 +123,8 @@ builtins = fromList
 
   , ("map", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
     case x of
-      LRat _ -> executeAsDataFunction f x'
-      LList xs -> ComputedValue . LList <$> traverse (executeAsDataFunction f) xs)
+      LList xs -> ComputedValue . LList <$> traverse (executeAsDataFunction f) xs
+      _ -> executeAsDataFunction f x')
 
   , ("keep", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
     ComputedValue <$> case x of

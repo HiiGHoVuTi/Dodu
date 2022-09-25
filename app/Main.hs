@@ -3,7 +3,8 @@ module Main where
 
 import Control.Applicative hiding (empty)
 import Control.Monad
-import Control.Monad.Trans
+import Control.Monad.Reader
+import Data.List
 import Data.Map
 import Data.Text (unpack)
 import Interpreter
@@ -39,9 +40,26 @@ main = execParser opts >>= execCommand
       <> help "the path to the file to load in the repl"
       )
 
+settings :: Settings (ReaderT Scope IO)
+settings = Settings
+  -- TODO: Something moe sophisticated
+  { complete = completeWord Nothing "\t \n" $ \startOfWord -> do
+      inScope <- asks (fmap unpack . Data.Map.keys)
+      let possibleWords = Prelude.filter (isPrefixOf startOfWord) (fmap unpack builtinNames ++ inScope)
+          completions = fmap (\w -> Completion
+            { replacement = w
+            , display = w
+            , isFinished = True
+            }) possibleWords
+      pure completions
+  -- TODO: history file ?
+  , historyFile = Nothing
+  , autoAddHistory = True
+  }
+
 execCommand :: Command -> IO ()
 execCommand CommandHi = putStrLn ("Hi, Dodu !" #Field)
-execCommand (CommandRepl Nothing) = runInputT defaultSettings (repl empty)
+execCommand (CommandRepl Nothing) = flip runReaderT empty $ runInputT settings repl
 execCommand (CommandRepl (Just filepath)) = do
   contents <- readFile filepath
   case parseProgram filepath contents of
@@ -49,20 +67,20 @@ execCommand (CommandRepl (Just filepath)) = do
     Right xs -> 
       case foldM run empty xs of
         Left e -> print e
-        Right scope -> runInputT defaultSettings (repl scope)
+        Right scope -> flip runReaderT scope $ runInputT settings repl
     where
       run m (i, p) =
         case eval m p of
           Left e -> Left e
           Right v -> Right $ Data.Map.insert i v m
 
-repl :: Scope -> InputT IO ()
-repl scope = do
+repl :: InputT (ReaderT Scope IO) ()
+repl = do
   getInputLine ("Dodu" #Operator ++ "> " #Parens) >>=
     \case
       Nothing -> pure ()
-      Just "" -> repl scope
-      Just ":q" -> lift $ putStrLn "Thanks for using Dodu 🐧"
+      Just "" -> repl
+      Just ":q" -> lift.lift $ putStrLn "Thanks for using Dodu 🐧"
       Just r ->
         let asStr = Prelude.take 2 r == ":s"
             r' = if asStr then Prelude.drop 2 r else r
@@ -71,16 +89,14 @@ repl scope = do
           -- not a program, so maybe an expr
           Left _ ->
             case parseExpr "repl" r' of
-              Left e -> lift (print e)
-                >> repl scope
-              Right p -> 
+              Left e -> (lift.lift) (print e) >> repl
+              Right p -> do 
+                scope <- lift ask
                 case eval scope p of
-                  Right v -> (lift . putStrLn . showV) v
-                    >> repl scope
-                  Left e -> (lift . putStrLn . unpack) e
-                    >> repl scope
-          Right xs -> 
+                  Right v -> (lift.lift . putStrLn . showV) v >> repl
+                  Left e -> (lift.lift . putStrLn . unpack) e >> repl
+          Right xs -> do
+            scope <- lift ask
             case sequence $ eval scope <$> fromList xs of
-              Right newScope -> repl $ Data.Map.union newScope scope
-              Left e -> (lift . putStrLn . unpack) e
-                    >> repl scope
+              Right newScope -> mapInputT (local (Data.Map.union newScope)) repl
+              Left e -> (lift.lift . putStrLn . unpack) e >> repl
