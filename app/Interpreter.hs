@@ -362,7 +362,7 @@ showVal size' x = case rvToMa x of
           mxL = Data.List.maximum . fmap Data.List.length $ xs
           pad zs = zs ++ Data.List.replicate (mxL - Prelude.length zs) ""
           mat' = fmap (shorten "… " . pad . fmap ((++ " ").render)) $ toList' <$> xs
-          mat = shorten (Prelude.replicate (min (Prelude.length mat') size' - 1) "⋮ " ++ ["⋱ "]) mat'
+          mat = shorten (Prelude.replicate (min (Prelude.length (head mat')) size' - 1) "⋮ " ++ ["⋱ "]) mat'
           widths = fmap Data.List.maximum . Data.List.transpose 
             $ (fmap.fmap) length' mat
           vert c = Data.List.intercalate c
