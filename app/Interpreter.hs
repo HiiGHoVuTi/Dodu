@@ -13,14 +13,14 @@ import Data.Foldable
 import Data.Fix
 import Data.List
 import Data.Map
-import Data.RatioInt
+import Data.Ratio -- Int
 import Data.Text hiding (empty, head, tail)
 import Lambda
 import Pretty
 
 type Scope = Map Text (RuntimeVal LEnv)
 
-type Rat = RatioInt
+type Rat = Rational
 
 newtype LEnv t = LEnv { unEnv :: ExceptT Text (Reader Scope) t }
   deriving (Functor, Applicative, Monad)
@@ -281,15 +281,21 @@ builtins = fromList
         fmap (ComputedValue . LList) . sequence $ Data.List.take (fromEnum n) (iterate (f =<<) $ pure x'))
   ]
   where pureRat = pure . ComputedValue . LRat . continuousApprox
+        limit = 1_000_000_000_000_000 
         continuousApprox x
-          | denominator x > 1_000_000_000 = approx' 5 x
+          | denominator x > limit =
+            let f = denominator x `div` limit
+            in (numerator   x `div` f)
+            %  (denominator x `div` f)
           | otherwise = x
-        approx' :: Int -> RatioInt -> RatioInt 
+        {-
+        approx' :: Int -> Rational -> Rational 
         approx' n x = 
           let w = floor x % 1
               f = x - w
           in if f == 0 || n == 0 then w
              else w + 1 / approx' (n-1) (1/f)
+        -}
 
 -- NOTE(Maxime): this is actually needed for some reason
 builtinNames :: [Text]

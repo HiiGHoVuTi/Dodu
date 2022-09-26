@@ -8,13 +8,13 @@ module Lambda (
 ) where
 
 import Data.Fix
-import Data.RatioInt
+-- import Data.RatioInt
 import Data.Text
 
 type Algebra f a = f a -> a
 
 data LambdaVal a
-  = LRat RatioInt -- jus de rat
+  = LRat Rational -- jus de rat
   | LList [a]
   deriving (Show, Functor)
 

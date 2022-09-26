@@ -6,7 +6,7 @@ module Parser (
 
 import Data.Fix
 import Data.List
-import Data.RatioInt
+import Data.Ratio -- Int
 import Data.Text hiding (foldl1', length, zipWith, take)
 import Lambda
 import Text.Parsec
@@ -52,7 +52,7 @@ parseProgram :: SourceName -> String -> Either ParseError Program
 parseProgram = parse programParser
 
 -- EXPRESSIONS
-num :: Parser RatioInt
+num :: Parser Rational
 num =      (%1)    . read <$> many1 digit
   <|> try ((%(-1)) . read <$> (char '-' *> many1 digit))
 
