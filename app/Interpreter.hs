@@ -16,6 +16,7 @@ import Data.Map
 import Data.Ratio -- Int
 import Data.Text hiding (empty, head, tail)
 import Lambda
+import Numeric
 import Pretty
 import System.Random.MWC
 import System.IO.Unsafe
@@ -94,10 +95,13 @@ rankPolymorphicBinary f =
   DataFunction $ \a -> pure . DataFunction $ \b ->
   rankPolymorphicBinary' f a b
 
+rationalPow :: Rat -> Rat -> Rat
+rationalPow a b = realToFrac $ (fromRational a :: Double) ** fromRational b
+
 builtins :: IsEnv m => Map Text (RuntimeVal m)
 builtins = fromList
   [ ("I" , DataFunction pure)
-  , ("K" , DataFunction . const . pure $ DataFunction pure)
+  , ("K" , DataFunction $ \x -> pure . DataFunction $ const (pure x))
   , ("C" , DataFunction $ \f -> pure . DataFunction $ \x -> pure . DataFunction $ \y ->
       do g <- executeAsDataFunction f y; executeAsDataFunction g x)
   , ("D", DataFunction $ \a -> pure . DataFunction $ \b -> pure . DataFunction $ \c -> pure . DataFunction $ \d ->
@@ -111,12 +115,18 @@ builtins = fromList
   , ("-" , rankPolymorphicBinary $ (pureRat .) . (-))
   , ("*" , rankPolymorphicBinary $ (pureRat .) . (*))
   , ("/" , rankPolymorphicBinary $ (pureRat .) . (/))
+  , ("pow" , rankPolymorphicBinary $ (pureRat .) . rationalPow)
   , ("=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (==))
   , ("!=", rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (/=))
   , (">" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (>))
   , (">=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (>=))
   , ("<" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (<))
   , ("<=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (<=))
+  , ("if", DataFunction $ \p -> pure . DataFunction $ \y -> pure . DataFunction $ \n -> let
+      isTruthy (ComputedValue (LRat x)) = x > 0
+      isTruthy (ComputedValue (LList xs)) = Prelude.all isTruthy xs
+      isTruthy _ = False
+    in pure $ if isTruthy p then y else n)
   , ("iota" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
   , ("?", DataFunction $ \case
     ComputedValue (LRat x) -> 
@@ -312,10 +322,10 @@ builtinNames
   =  -- Combinators
   ["I", "K", "C", "D", "B", "M"]
   ++ -- Numbers
-  ["+", "-", "*", "/"] ++ ["numerator", "denominator"]
+  ["+", "-", "*", "/", "pow"] ++ ["numerator", "denominator"]
   ++ ["?"]
   ++ -- Comparison
-  ["=", "!=", ">", ">=", "<", "<="]
+  ["=", "!=", ">", ">=", "<", "<="] ++ ["if"]
   ++ -- Folds, unfolds, maps
   ["map", "fold", "scan", "iter", "head", "last", "tail", "take" 
   ,"rotate", "rev", "transpose", "flat", "nub", "indices", "reshape"]
@@ -371,6 +381,7 @@ showVal size' x = case rvToMa x of
     
     render (Single v)
       | denominator v == 1 = show (numerator v) #Literal
+      | denominator v * numerator v > 1_000_000 = showFFloat (Just 3) (fromRational v :: Float) "" #Literal 
       | otherwise          = show (numerator v) #Literal <> "/" #Operator <> show (denominator v) #Literal
     render v@(Many xs)
       | depth v == 1 = let
