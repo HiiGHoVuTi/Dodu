@@ -29,10 +29,12 @@ executable Dodu
                     , Lambda
                     , Parser
                     , Interpreter
+                    , JupyterServer
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
     build-depends:    base ^>=4.15.1.0
+                    , aeson < 2.0
                     , ratio-int
                     , mwc-random
                     , mtl
@@ -43,6 +45,7 @@ executable Dodu
                     , containers
                     , data-fix
                     , recursion-schemes
+                    , jupyter
     hs-source-dirs:   app
     default-language: Haskell2010
     ghc-options:     -Wall

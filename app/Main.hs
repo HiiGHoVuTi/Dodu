@@ -1,7 +1,8 @@
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE LambdaCase, OverloadedStrings #-}
 module Main where
 
 import Control.Applicative hiding (empty)
+import Control.Concurrent (newMVar)
 import Control.Monad
 import Control.Monad.Reader
 import Data.List
@@ -13,10 +14,17 @@ import Options.Applicative.Extra
 import Parser
 import Pretty
 import System.Console.Haskeline
+import JupyterServer (requestHandler)
+import Jupyter.Install (installKernel, simpleKernelspec, 
+    InstallUser(..), InstallResult(..), Kernelspec)
+import Jupyter.Kernel (readProfile, serve, defaultCommHandler)
 
 data Command
    = CommandHi
    | CommandRepl (Maybe FilePath)
+   -- Jupyter
+   | JupyterStart FilePath
+   | JupyterInstall
 
 main :: IO ()
 main = execParser opts >>= execCommand 
@@ -30,14 +38,29 @@ main = execParser opts >>= execCommand
 
     optsParser =
       subparser
-        ( command "say-hi" (info (pure CommandHi) (progDesc "Say hi to Dodu !"))
-       <> command "repl"   (info replCommand      (progDesc "Open a repl to start experimenting"))
+        ( command "say-hi" 
+            (info (pure CommandHi) 
+            (progDesc "Say hi to Dodu !"))
+       <> command "repl"   
+            (info replCommand 
+            (progDesc "Open a repl to start experimenting"))
+       <> command "install-kernel" 
+            (info (pure JupyterInstall) 
+            (progDesc "Install the Jupyter kernel"))
+       <> command "kernel" 
+            (info (JupyterStart <$> jupyterFileArgument) 
+            (progDesc "Run the Dodu Jupyter kernel"))
         )
         
     replCommand = CommandRepl <$> (optional . strOption)
       (  long "load"
       <> metavar "INPUT"
       <> help "the path to the file to load in the repl"
+      )
+      
+    jupyterFileArgument = strArgument
+      (  metavar "PROFILE"
+      <> help "the connection file to use"
       )
 
 settings :: Settings (ReaderT Scope IO)
@@ -73,6 +96,8 @@ execCommand (CommandRepl (Just filepath)) = do
         case eval m p of
           Left e -> Left e
           Right v -> Right $ Data.Map.insert i v m
+execCommand JupyterInstall = runInstall
+execCommand (JupyterStart file) = runKernel file
 
 repl :: InputT (ReaderT Scope IO) ()
 repl = do
@@ -97,6 +122,34 @@ repl = do
                   Left e -> (lift.lift . putStrLn . unpack) e >> repl
           Right xs -> do
             scope <- lift ask
-            case sequence $ eval scope <$> fromList xs of
+            case mapM (eval scope) (fromList xs) of
               Right newScope -> mapInputT (local (Data.Map.union newScope)) repl
               Left e -> (lift.lift . putStrLn . unpack) e >> repl
+
+runInstall :: IO ()
+runInstall =
+  installKernel InstallLocal doduKernelspec >>= handleInstallResult
+  where
+    -- A basic kernelspec with limited info.
+    doduKernelspec :: Kernelspec
+    doduKernelspec = 
+      simpleKernelspec "Dodu" "dodu" $ \exe connect -> [exe, "kernel", connect]
+
+    -- Print an error message and exit with non-zero exit code if the install failed. 
+    handleInstallResult :: InstallResult -> IO ()
+    handleInstallResult installResult =
+      case installResult of
+        InstallSuccessful -> return ()
+        InstallFailed reason -> do
+          putStrLn $ unpack reason
+
+runKernel :: FilePath -> IO ()
+runKernel profilePath = do
+  Just profile <- readProfile profilePath
+
+  -- Keep track of the current execution using an MVar. In general, kernel state (when it exists)
+  -- often needs to be kept in some sort of temporary mutable state.
+  execCountVar <- newMVar 1
+  mainScopeVar <- newMVar empty
+  serve profile defaultCommHandler 
+    $ requestHandler profile execCountVar mainScopeVar

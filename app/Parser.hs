@@ -1,7 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Parser (
   programParser, exprParser,
-  parseProgram, parseExpr
+  parseProgram, parseExpr,
+  parseCell
 ) where
 
 import Data.Fix
@@ -123,4 +124,10 @@ exprParser = try letParser <|> try lambdaParser <|> try compositionParser <|> tr
 
 parseExpr :: SourceName -> String -> Either ParseError LambdaExpr
 parseExpr = parse (exprParser <* eof)
+
+parseCell :: SourceName -> String -> Either ParseError (Program, LambdaExpr)
+parseCell = parse $ do
+  p <- programParser
+  e <- exprParser <* eof
+  pure (p, e)
 
