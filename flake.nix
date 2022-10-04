@@ -2,7 +2,7 @@
   description = "Dodu";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs";
+    nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -17,7 +17,8 @@
           pkgs.haskell.lib.doJailbreak (pkg.overrideAttrs (_: { meta = { }; }));
 
         packageName = "Dodu";
-      in {
+      in
+      {
         packages.${packageName} = # (ref:haskell-package-def)
           haskellPackages.callCabal2nix packageName self rec {
             # Dependency overrides go here
@@ -30,8 +31,13 @@
             haskell-language-server
             ghcid
             cabal-install
+            pkgs.pkg-config
+            pkgs.zeromq pkgs.libsodium
           ];
           inputsFrom = builtins.attrValues self.packages.${system};
+          shellHook = ''
+            export PKG_CONFIG_PATH="$(which pkg-config)"
+          '';
         };
       });
 }

@@ -17,6 +17,8 @@ import Data.Ratio -- Int
 import Data.Text hiding (empty, head, tail)
 import Lambda
 import Pretty
+import System.Random.MWC
+import System.IO.Unsafe
 
 type Scope = Map Text (RuntimeVal LEnv)
 
@@ -115,7 +117,15 @@ builtins = fromList
   , (">=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (>=))
   , ("<" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (<))
   , ("<=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (<=))
-  , ("i" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
+  , ("iota" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
+  , ("?", DataFunction $ \case
+    ComputedValue (LRat x) -> 
+      pureRat . realToFrac 
+      $ unsafePerformIO (uniformRM (0, fromRational x :: Double) =<< createSystemRandom)
+    ComputedValue (LList [ComputedValue (LRat a), ComputedValue (LRat b)]) -> 
+      pureRat . realToFrac 
+      $ unsafePerformIO (uniformRM (fromRational a, fromRational b :: Double) =<< createSystemRandom)
+    _ -> throwError "Cannot use function as value")
   , ("::", rankPolymorphicBinary $ \x y -> pure . ComputedValue . LList $ [ComputedValue (LRat x), ComputedValue (LRat y)])
   , (":" , DataFunction $ \x -> pure . DataFunction $ \y -> concatValues x y)
   , ("numerator", DataFunction $ onMultiArray $ pure . fmap ((%1).numerator))
@@ -239,7 +249,6 @@ builtins = fromList
       in onMultiArray flat)
 
   -- TODO: x ∈ xs
-  -- TODO: reshape ρ
 
   -- TODO(Maxime): implement with onMultiArray
   -- FIXME(Maxime): use throwError
@@ -304,6 +313,7 @@ builtinNames
   ["I", "K", "C", "D", "B", "M"]
   ++ -- Numbers
   ["+", "-", "*", "/"] ++ ["numerator", "denominator"]
+  ++ ["?"]
   ++ -- Comparison
   ["=", "!=", ">", ">=", "<", "<="]
   ++ -- Folds, unfolds, maps
@@ -312,7 +322,7 @@ builtinNames
   ++ -- misc ?
   ["nth", "keep", "sort"]
   ++ -- Arrays
-  ["i", ":", "::", "outer"]
+  ["iota", ":", "::", "outer"]
 
 eval :: Scope -> LambdaExpr -> Either Text (RuntimeVal LEnv)
 eval m l = runReader (runExceptT (unEnv (foldFix exprAlgebra l))) m
