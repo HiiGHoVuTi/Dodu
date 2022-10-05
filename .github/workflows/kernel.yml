@@ -9,21 +9,21 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish:
-    name: Publish for ${{ matrix.os }}
+  kernelpublish:
+    name: Publish kernel for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
             artifact_name: Dodu
-            asset_name: Dodu-linux-amd64
+            asset_name: Dodu-jupyter-linux-amd64
           - os: windows-latest
             artifact_name: Dodu.exe
-            asset_name: Dodu-windows-amd64
+            asset_name: Dodu-jupyter-kernel-windows-amd64
           - os: macos-latest
             artifact_name: Dodu
-            asset_name: Dodu-macos-amd64
+            asset_name: Dodu-jupyter-macos-amd64
 
     steps:
     - uses: actions/checkout@v2
@@ -59,6 +59,6 @@ jobs:
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         file: ./dist/${{ matrix.artifact_name }}
-        asset_name: ${{ matrix.asset_name }}_kernel
+        asset_name: ${{ matrix.asset_name }}
         tag: ${{ github.ref }}
         overwrite: true
