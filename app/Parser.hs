@@ -1,9 +1,11 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, NumericUnderscores #-}
 module Parser (
   programParser, exprParser,
-  parseProgram, parseExpr
+  parseProgram, parseExpr,
+  parseCSV
 ) where
 
+import Data.CSV
 import Data.Fix
 import Data.List
 import Data.Ratio -- Int
@@ -124,4 +126,21 @@ exprParser = try letParser <|> try lambdaParser <|> try compositionParser <|> tr
 
 parseExpr :: SourceName -> String -> Either ParseError LambdaExpr
 parseExpr = parse (exprParser <* eof)
+
+csvParser :: Parser (RuntimeVal m)
+csvParser = toVal <$> csvFile
+  where
+    toVal = ComputedValue . LList 
+          . fmap (ComputedValue . LList 
+          . fmap (ComputedValue . strToLVal))
+    strToLVal x = case parse (fromIntegral <$> try (integer lexer)
+                                                <|> float lexer)
+                      "" x of
+      Right f -> LRat (realToFrac f)
+      Left _ -> LList 
+        $ ComputedValue (LRat (1 % 10_000_000_000_000_001)) 
+        : (ComputedValue .LRat. toEnum.fromEnum <$> x)
+
+parseCSV :: SourceName -> String -> Either ParseError (RuntimeVal m)
+parseCSV = parse csvParser
 

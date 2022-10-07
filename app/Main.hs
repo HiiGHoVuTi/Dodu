@@ -4,7 +4,6 @@ module Main where
 import Control.Applicative hiding (empty)
 import Control.Monad
 import Control.Monad.Reader
-import Lambda
 import Data.List
 import Data.List.Split
 import Data.Map
@@ -85,16 +84,13 @@ repl = do
       Just ":q" -> lift.lift $ putStrLn "Thanks for using Dodu 🐧"
       Just r
         | Prelude.take 4 r == ":csv" -> do
-          let (_:v:path) = splitOn " " r
+          let (_:name:path) = splitOn " " r
           file <- lift.lift $ readFile (unwords path)
-          let valuesStr = splitOn "," <$> lines file
-              valuesInt = fmap (realToFrac . (read :: String -> Double)) <$> valuesStr
-              valsAsLvl = ComputedValue . LList
-                . fmap (ComputedValue . LList 
-                . fmap (ComputedValue . LRat))
-                $ valuesInt
-              newScope  = Data.Map.fromList [(pack v, valsAsLvl)]
-          mapInputT (local (Data.Map.union newScope)) repl
+          case parseCSV (unwords path) file of
+                Left e -> (lift.lift) (print e) >> repl
+                Right x -> let
+                    newScope = Data.Map.fromList [(pack name, x)]
+                  in mapInputT (local (Data.Map.union newScope)) repl
       Just r ->
         let asStr = Prelude.take 2 r == ":s"
             r' = if asStr then Prelude.drop 2 r else r
