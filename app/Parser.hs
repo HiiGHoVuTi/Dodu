@@ -30,7 +30,7 @@ languageDef = emptyDef
   , caseSensitive   = True
   , identStart      = glyph
   , identLetter     = glyph
-  , reservedNames   = ["Dodu", ".", "\\", "@"]
+  , reservedNames   = ["Dodu", ".", "\\", "@", "|>"]
   , reservedOpNames = ["<-"]
   }
 
@@ -68,7 +68,8 @@ litParser = fmap sta (stringLiteral lexer)
   where
     sta :: String -> LambdaExpr
     sta = lVal . LList .
-       (lVal (LRat (1%10000000000000001)) :) . fmap (lVal . LRat . toEnum . fromEnum)
+       (lVal (LRat (1%10_000_000_000_000_001)) :) 
+      . fmap (lVal . LRat . toEnum . fromEnum)
 
 varParser :: Parser LambdaExpr
 varParser = wrapFix . LVar . pack <$> identifier lexer
@@ -83,6 +84,12 @@ compositionParser = do
   g <- char ',' *> exprParser
   let x = "" -- FIXME(Maxime): get UID 
     in pure $ lAbs x (lApp g (lApp f (lVar x)))
+
+andThenParser :: Parser LambdaExpr
+andThenParser = do
+  f <- try appParser <|> term'  
+  g <- string "|>" *> exprParser
+  pure $ lApp g f
 
 appParser :: Parser LambdaExpr
 appParser = do
@@ -122,7 +129,12 @@ letParser = do
   
 
 exprParser :: Parser LambdaExpr
-exprParser = try letParser <|> try lambdaParser <|> try compositionParser <|> try appParser <|> term'
+exprParser = try letParser 
+         <|> try lambdaParser 
+         <|> try andThenParser
+         <|> try compositionParser
+         <|> try appParser
+         <|> term'
 
 parseExpr :: SourceName -> String -> Either ParseError LambdaExpr
 parseExpr = parse (exprParser <* eof)
