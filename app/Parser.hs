@@ -65,7 +65,8 @@ litParser = fmap sta (stringLiteral lexer)
         <|> fmap (lVal . LList) array
   where
     sta :: String -> LambdaExpr
-    sta = lVal . LList . fmap (lVal . LRat . toEnum . fromEnum)
+    sta = lVal . LList .
+       (lVal (LRat (1%10000000000000001)) :) . fmap (lVal . LRat . toEnum . fromEnum)
 
 varParser :: Parser LambdaExpr
 varParser = wrapFix . LVar . pack <$> identifier lexer

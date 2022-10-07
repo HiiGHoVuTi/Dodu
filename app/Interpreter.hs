@@ -362,8 +362,20 @@ exprAlgebra =
 showVal :: Int -> RuntimeVal m -> String
 showVal size' x = case rvToMa x of
   Left _ -> "Cannot show Data Function" #Error
-  Right m -> render m
+  Right m -> render . homogeniseDepth . preRender $ m
   where
+    stringConstant = 1 % 10_000_000_000_000_001
+    toSingle (Single v) = v; toSingle _ = undefined
+    -- string in disguise
+    isMany (Many _) = True ; isMany _ = False
+    manyfy (Single v) = Many [Single v] ; manyfy v = v
+    homogeniseDepth (Single v) = Single v
+    homogeniseDepth (Many []) = Many []
+    homogeniseDepth (Many xs)
+      | Prelude.all isMany xs = Many $ homogeniseDepth <$> xs 
+      | Prelude.any isMany xs = Many $ homogeniseDepth . manyfy <$> xs 
+      | otherwise = Many xs
+ 
     length' = flip length'' True
     length'' "" _ = 0
     length'' "\n" _ = 0 
@@ -378,11 +390,19 @@ showVal size' x = case rvToMa x of
     shorten c xs
       | Prelude.length xs <= size' = xs
       | otherwise = Prelude.take (size' - 1) xs ++ [c]
-    
-    render (Single v)
-      | denominator v == 1 = show (numerator v) #Literal
-      | denominator v * numerator v > 1_000_000 = showFFloat (Just 3) (fromRational v :: Float) "" #Literal 
-      | otherwise          = show (numerator v) #Literal <> "/" #Operator <> show (denominator v) #Literal
+
+    preRender (Single v)
+      | denominator v == 1 = Single $ show (numerator v) #Literal
+      | denominator v * numerator v > 1_000_000 =
+        Single $  showFFloat (Just 3) (fromRational v :: Float) "" #Literal 
+      | otherwise          = Single $ show (numerator v) #Literal <> "/" #Operator <> show (denominator v) #Literal
+    preRender (Many (Single v:vs))
+      | v == stringConstant = Single . (#Literal) $ "\"" 
+        <> (toEnum.fromEnum . toSingle <$> vs)
+      <> "\""
+    preRender (Many xs) = Many $ preRender <$> xs
+
+    render (Single v) = v
     render v@(Many xs)
       | depth v == 1 = let
           els  = shorten "…" $ render <$> xs
