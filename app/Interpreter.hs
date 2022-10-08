@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings, NumericUnderscores, LambdaCase, GeneralisedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, ConstraintKinds #-}
 module Interpreter (
   Scope,
-  eval, showVal, valString,
+  eval, showVal, valString, renderAsCsv,
   builtinNames
 ) where
 
@@ -24,6 +24,9 @@ import System.IO.Unsafe
 type Scope = Map Text (RuntimeVal LEnv)
 
 type Rat = Rational
+
+stringConstant :: Rat
+stringConstant = 1 % 10_000_000_000_000_001
 
 newtype LEnv t = LEnv { unEnv :: ExceptT Text (Reader Scope) t }
   deriving (Functor, Applicative, Monad)
@@ -69,8 +72,16 @@ executeAsDataFunction f x =
 concatValues :: IsEnv m => RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
 concatValues a'@(ComputedValue a) b'@(ComputedValue b) =
   pure . ComputedValue $ case (a, b) of
+    (LList (ComputedValue (LRat v):_), LRat _)
+      | v == stringConstant -> LList [a', b']
+    (LList (ComputedValue (LRat v):_), LList xs)
+      | v == stringConstant -> LList (a' : xs)
+    (LRat _, LList (ComputedValue (LRat v):_))
+      | v == stringConstant -> LList [a', b']
+    (LList xs, LList (ComputedValue (LRat v):_))
+      | v == stringConstant -> LList (xs ++ pure b')
     (LRat _, LRat _) -> LList [a', b']
-    (LList xs, LRat _) -> LList (xs ++ [b'])
+    (LList xs, LRat _) -> LList (xs ++ pure b')
     (LRat _, LList ys) -> LList (a' : ys)
     (LList xs, LList ys) -> LList (xs ++ ys)
 concatValues _ _ = throwError $ pack ("sale rat" #Error)
@@ -359,23 +370,36 @@ exprAlgebra =
         DataFunction df -> df x
         ComputedValue v -> (pure.ComputedValue) v
 
+preRender :: MultiArray Rational -> MultiArray String
+preRender (Single v)
+  | denominator v == 1 = Single $ show (numerator v) #Literal
+  | denominator v * numerator v > 1_000_000 =
+    Single $  showFFloat (Just 3) (fromRational v :: Float) "" #Literal 
+  | otherwise          = Single $ show (numerator v) #Literal <> "/" #Operator <> show (denominator v) #Literal
+preRender (Many (Single v:vs))
+  | v == stringConstant = Single . (#Literal) $ "\"" 
+    <> (toEnum.fromEnum . toSingle <$> vs)
+    <> "\""
+    where
+      toSingle (Single a) = a; toSingle _ = undefined
+preRender (Many xs) = Many $ preRender <$> xs
+
+homogeniseDepth :: MultiArray a -> MultiArray a
+homogeniseDepth (Single v) = Single v
+homogeniseDepth (Many []) = Many []
+homogeniseDepth (Many xs)
+  | Prelude.all isMany xs = Many $ homogeniseDepth <$> xs 
+  | Prelude.any isMany xs = Many $ homogeniseDepth . manyfy <$> xs 
+  | otherwise = Many xs
+  where
+    isMany (Many _) = True ; isMany _ = False
+    manyfy (Single v) = Many [Single v] ; manyfy v = v
+
 showVal :: Int -> RuntimeVal m -> String
 showVal size' x = case rvToMa x of
   Left _ -> "Cannot show Data Function" #Error
   Right m -> render . homogeniseDepth . preRender $ m
   where
-    stringConstant = 1 % 10_000_000_000_000_001
-    toSingle (Single v) = v; toSingle _ = undefined
-    -- string in disguise
-    isMany (Many _) = True ; isMany _ = False
-    manyfy (Single v) = Many [Single v] ; manyfy v = v
-    homogeniseDepth (Single v) = Single v
-    homogeniseDepth (Many []) = Many []
-    homogeniseDepth (Many xs)
-      | Prelude.all isMany xs = Many $ homogeniseDepth <$> xs 
-      | Prelude.any isMany xs = Many $ homogeniseDepth . manyfy <$> xs 
-      | otherwise = Many xs
- 
     length' = flip length'' True
     length'' "" _ = 0
     length'' "\n" _ = 0 
@@ -390,17 +414,6 @@ showVal size' x = case rvToMa x of
     shorten c xs
       | Prelude.length xs <= size' = xs
       | otherwise = Prelude.take (size' - 1) xs ++ [c]
-
-    preRender (Single v)
-      | denominator v == 1 = Single $ show (numerator v) #Literal
-      | denominator v * numerator v > 1_000_000 =
-        Single $  showFFloat (Just 3) (fromRational v :: Float) "" #Literal 
-      | otherwise          = Single $ show (numerator v) #Literal <> "/" #Operator <> show (denominator v) #Literal
-    preRender (Many (Single v:vs))
-      | v == stringConstant = Single . (#Literal) $ "\"" 
-        <> (toEnum.fromEnum . toSingle <$> vs)
-      <> "\""
-    preRender (Many xs) = Many $ preRender <$> xs
 
     render (Single v) = v
     render v@(Many xs)
@@ -441,3 +454,17 @@ valString (ComputedValue (LList xs))
   | otherwise = Prelude.concatMap valString xs
   where isList (ComputedValue (LList _)) = True ; isList _ = False
 valString DataFunction{} = "Cannot show Data Function" #Error
+
+renderAsCsv :: RuntimeVal m -> Maybe String
+renderAsCsv x = render . homogeniseDepth . preRender' <$> rightToMaybe (rvToMa x)
+  where
+    rightToMaybe (Right a) = Just a ; rightToMaybe _ = Nothing
+    toSingle (Single a) = a; toSingle _ = undefined
+    preRender' (Single v) = Single $ show (fromRational v :: Double)
+    preRender' (Many (Single v:vs))
+      | v == stringConstant = Single $
+        toEnum.fromEnum . toSingle <$> vs
+    preRender' (Many xs) = Many $ preRender' <$> xs
+    render (Single v) = v
+    render (Many xs@(Many _:_)) = Data.List.intercalate "\n" (render <$> xs)
+    render (Many xs) = Data.List.intercalate "," (render <$> xs)

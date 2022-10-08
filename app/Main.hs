@@ -91,6 +91,14 @@ repl = do
                 Right x -> let
                     newScope = Data.Map.fromList [(pack name, x)]
                   in mapInputT (local (Data.Map.union newScope)) repl
+          | Prelude.take 6 r == ":write" -> do
+            let (_:name:path) = splitOn " " r
+            val <- lift $ asks (Data.Map.!? pack name)
+            case renderAsCsv =<< val of
+              Just data' -> (lift.lift) (writeFile (unwords path) (data' <> "\n"))
+                >> repl
+              Nothing -> (lift.lift) (putStrLn ("Cannot write this variable to csv file" #Error))
+                >> repl
       Just r ->
         let asStr = Prelude.take 2 r == ":s"
             r' = if asStr then Prelude.drop 2 r else r
