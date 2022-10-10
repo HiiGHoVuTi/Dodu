@@ -37,7 +37,8 @@ lVal = wrapFix . LVal
 
 data RuntimeVal m
   = ComputedValue (LambdaVal (RuntimeVal m))
-  | DataFunction (RuntimeVal m -> m (RuntimeVal m))
+  | Delayed Text (m (RuntimeVal m))
+  -- | DataFunction (RuntimeVal m -> m (RuntimeVal m))
   
 data MultiArray a
   = Single a

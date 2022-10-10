@@ -82,7 +82,7 @@ compositionParser :: Parser LambdaExpr
 compositionParser = do
   f <- try appParser <|> term'  
   g <- char ',' *> exprParser
-  let x = "" -- FIXME(Maxime): get UID 
+  let x = "," -- FIXME(Maxime): get UID 
     in pure $ lAbs x (lApp g (lApp f (lVar x)))
 
 andThenParser :: Parser LambdaExpr
@@ -102,11 +102,11 @@ trainParser = char '{' *> fmap toTrain (many1 term') <* char '}'
     toTrain [a] = lAbs "_" a
     -- λabx.a(bx)x
     toTrain [a, b] = 
-      let x = "" -- FIXME(Maxime): UID
+      let x = "2" -- FIXME(Maxime): UID
       in lAbs x (lApp (lApp a (lApp b (lVar x))) (lVar x))
     -- λabcx.a(bx)(cx)
     toTrain [a, b, c] = 
-      let x = "" -- FIXME(Maxime): UID
+      let x = "3" -- FIXME(Maxime): UID
       in lAbs x (lApp (lApp b (lApp a (lVar x))) (lApp c (lVar x)))
     toTrain o = error $ show (length o) ++ "-trains not yet defined !" 
 

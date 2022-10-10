@@ -42,7 +42,7 @@ instance MonadError Text LEnv where
   catchError (LEnv a) f = LEnv $ catchError a (unEnv.f)
 
 rvToMa :: MonadError Text m => RuntimeVal a -> m (MultiArray Rat)
-rvToMa  DataFunction{} = throwError $ pack ("Cannot use function as value" #Error)
+rvToMa  Delayed{} = throwError $ pack ("Cannot use function as value" #Error)
 rvToMa (ComputedValue (LRat v)) = pure (Single v) 
 rvToMa (ComputedValue (LList xs)) = fmap Many . traverse rvToMa $ xs
 
@@ -62,11 +62,19 @@ asmaf :: IsEnv m
   -> MultiArray Rat -> m (MultiArray Rat)
 asmaf f m = f (maToRv m) >>= rvToMa
 
+executeDelayed :: IsEnv m => Text -> m (RuntimeVal m) -> RuntimeVal m -> m (RuntimeVal m)
+executeDelayed t f x = local (Data.Map.insert t x) f
+
+dataFunction :: IsEnv m => (RuntimeVal m -> m (RuntimeVal m)) -> RuntimeVal m
+dataFunction f = Delayed t $ asks (Data.Map.! t) >>= f
+  where
+    t = pack.show $ unsafePerformIO (uniformM =<< createSystemRandom :: IO Int)
+
 executeAsDataFunction :: IsEnv m => RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
 executeAsDataFunction f x =
   case f of
     ComputedValue z -> pure (ComputedValue z)
-    DataFunction g -> g x
+    Delayed t g -> executeDelayed t g x
 
 -- TODO(Maxime): implement with onMultiArray
 concatValues :: IsEnv m => RuntimeVal m -> RuntimeVal m -> m (RuntimeVal m)
@@ -103,7 +111,7 @@ rankPolymorphicBinary' f a' b' =
 
 rankPolymorphicBinary :: IsEnv m => (Rat -> Rat -> m (RuntimeVal m)) -> RuntimeVal m
 rankPolymorphicBinary f =
-  DataFunction $ \a -> pure . DataFunction $ \b ->
+  dataFunction $ \a -> pure . dataFunction $ \b ->
   rankPolymorphicBinary' f a b
 
 rationalPow :: Rat -> Rat -> Rat
@@ -111,15 +119,15 @@ rationalPow a b = realToFrac $ (fromRational a :: Double) ** fromRational b
 
 builtins :: IsEnv m => Map Text (RuntimeVal m)
 builtins = fromList
-  [ ("I" , DataFunction pure)
-  , ("K" , DataFunction $ \x -> pure . DataFunction $ const (pure x))
-  , ("C" , DataFunction $ \f -> pure . DataFunction $ \x -> pure . DataFunction $ \y ->
+  [ ("I" , dataFunction pure)
+  , ("K" , dataFunction $ \x -> pure . dataFunction $ const (pure x))
+  , ("C" , dataFunction $ \f -> pure . dataFunction $ \x -> pure . dataFunction $ \y ->
       do g <- executeAsDataFunction f y; executeAsDataFunction g x)
-  , ("D", DataFunction $ \a -> pure . DataFunction $ \b -> pure . DataFunction $ \c -> pure . DataFunction $ \d ->
+  , ("D", dataFunction $ \a -> pure . dataFunction $ \b -> pure . dataFunction $ \c -> pure . dataFunction $ \d ->
       do g <- executeAsDataFunction a b; h <- executeAsDataFunction c d; executeAsDataFunction g h)
-  , ("B", DataFunction $ \a -> pure . DataFunction $ \b -> pure . DataFunction $ \c ->
+  , ("B", dataFunction $ \a -> pure . dataFunction $ \b -> pure . dataFunction $ \c ->
       do g <- executeAsDataFunction b c; executeAsDataFunction a g)
-  , ("M", DataFunction $ \a -> pure . DataFunction $ \b ->
+  , ("M", dataFunction $ \a -> pure . dataFunction $ \b ->
       do ab <- executeAsDataFunction a b; executeAsDataFunction ab b)
 
   , ("+" , rankPolymorphicBinary $ (pureRat .) . (+))
@@ -133,13 +141,17 @@ builtins = fromList
   , (">=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (>=))
   , ("<" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (<))
   , ("<=" , rankPolymorphicBinary $ ((pureRat . toEnum . fromEnum) .) . (<=))
-  , ("if", DataFunction $ \p -> pure . DataFunction $ \y -> pure . DataFunction $ \n -> let
+  , ("if", let
+      p = pack.show $ unsafePerformIO (uniformM =<< createSystemRandom :: IO Int)
       isTruthy (ComputedValue (LRat x)) = x > 0
       isTruthy (ComputedValue (LList xs)) = Prelude.all isTruthy xs
       isTruthy _ = False
-    in pure $ if isTruthy p then y else n)
-  , ("iota" , DataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
-  , ("?", DataFunction $ \case
+    in Delayed p $ 
+      asks (isTruthy . (Data.Map.! p)) >>= \case
+        True  -> pure . dataFunction $ \t -> pure (Delayed "" (pure t)) 
+        False -> pure . Delayed "" . pure $ dataFunction pure)
+  , ("iota" , dataFunction $ \(ComputedValue (LRat x)) -> pure . ComputedValue . LList . fmap (ComputedValue . LRat) $ [0..x])
+  , ("?", dataFunction $ \case
     ComputedValue (LRat x) -> 
       pureRat . realToFrac 
       $ unsafePerformIO (uniformRM (0, fromRational x :: Double) =<< createSystemRandom)
@@ -148,16 +160,16 @@ builtins = fromList
       $ unsafePerformIO (uniformRM (fromRational a, fromRational b :: Double) =<< createSystemRandom)
     _ -> throwError "Cannot use function as value")
   , ("::", rankPolymorphicBinary $ \x y -> pure . ComputedValue . LList $ [ComputedValue (LRat x), ComputedValue (LRat y)])
-  , (":" , DataFunction $ \x -> pure . DataFunction $ \y -> concatValues x y)
-  , ("numerator", DataFunction $ onMultiArray $ pure . fmap ((%1).numerator))
-  , ("denominator", DataFunction $ onMultiArray $ pure . fmap ((%1).denominator))
+  , (":" , dataFunction $ \x -> pure . dataFunction $ \y -> concatValues x y)
+  , ("numerator", dataFunction $ onMultiArray $ pure . fmap ((%1).numerator))
+  , ("denominator", dataFunction $ onMultiArray $ pure . fmap ((%1).denominator))
 
-  , ("map", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
+  , ("map", dataFunction $ \f -> pure . dataFunction $ \x'@(ComputedValue x) ->
     case x of
       LList xs -> ComputedValue . LList <$> traverse (executeAsDataFunction f) xs
       _ -> executeAsDataFunction f x')
 
-  , ("keep", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
+  , ("keep", dataFunction $ \f -> pure . dataFunction $ \x'@(ComputedValue x) ->
     ComputedValue <$> case x of
       LRat _ -> do
         y <- executeAsDataFunction f x'
@@ -167,7 +179,7 @@ builtins = fromList
         ps <- traverse (executeAsDataFunction f) xs
         pure . LList $ [v | (v, ComputedValue (LRat p)) <- Data.List.zip xs ps, p > 0])
 
-  , ("indices", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
+  , ("indices", dataFunction $ \f -> pure . dataFunction $ \x'@(ComputedValue x) ->
     ComputedValue <$> case x of
       LRat _ -> executeAsDataFunction f x'
         >>= \case
@@ -177,22 +189,22 @@ builtins = fromList
         ps <- traverse (executeAsDataFunction f) xs
         pure . LList $ [ComputedValue (LRat i) | (i, ComputedValue (LRat p)) <- Data.List.zip [0..] ps, p > 0])
 
-  , ("fold", DataFunction $ \f -> pure . DataFunction $ \(ComputedValue x) ->
+  , ("fold", dataFunction $ \f -> pure . dataFunction $ \(ComputedValue x) ->
     case x of
       LRat v -> pure . ComputedValue . LRat $ v
       LList xs -> Data.List.foldl' (\a b -> do
         g <- executeAsDataFunction f =<< a
         executeAsDataFunction g b) (pure $ Data.List.head xs) (Data.List.tail xs))
 
-  , ("scan", DataFunction $ \f -> pure . DataFunction $ \x'@(ComputedValue x) ->
+  , ("scan", dataFunction $ \f -> pure . dataFunction $ \x'@(ComputedValue x) ->
     ComputedValue <$> case x of
       LRat _ -> pure . LList $ [x']
       LList xs -> fmap LList . sequence $ Data.List.scanl' (\a b -> do
         g <- executeAsDataFunction f =<< a
         executeAsDataFunction g b) (pure $ Data.List.head xs) (Data.List.tail xs))
   
-  , ("outer", DataFunction $ \f' -> 
-       pure . DataFunction $ \a' -> pure . DataFunction $ \b' -> do 
+  , ("outer", dataFunction $ \f' -> 
+       pure . dataFunction $ \a' -> pure . dataFunction $ \b' -> do 
           a <- rvToMa a' ; b <- rvToMa b'
           let f x y = f' `executeAsDataFunction` ComputedValue (LRat x) 
                  >>= flip executeAsDataFunction (ComputedValue (LRat y))
@@ -200,14 +212,14 @@ builtins = fromList
           z <- sequenceA $ f <$> a <*> b
           pure . maToRv . foldMultiArray $ z)
   
-  , ("transpose", DataFunction . onMultiArray $ \x ->
+  , ("transpose", dataFunction . onMultiArray $ \x ->
     let asList (Single _) = throwError $ pack ("Cannot transpose 1D-Array" #Error)
         asList (Many xs)  = pure xs
     in case x of
       Single v -> pure (Single v)
       Many xs -> fmap (Many . fmap Many . Data.List.transpose) . mapM asList $ xs)
   
-  , ("reshape", DataFunction $ \shape' -> pure . DataFunction . onMultiArray $ \x ->
+  , ("reshape", dataFunction $ \shape' -> pure . dataFunction . onMultiArray $ \x ->
       let isRat (ComputedValue (LRat _)) = True ; isRat _ = False
           asRat (ComputedValue (LRat r)) = r    ; asRat _ = undefined
       in case shape' of
@@ -229,43 +241,43 @@ builtins = fromList
           in evalStateT (fill shape) l
         _ -> throwError $ pack ("Cannot use function as shape" #Error))
 
-  , ("head", DataFunction $ \x'@(ComputedValue x) ->
+  , ("head", dataFunction $ \x'@(ComputedValue x) ->
     case x of
       LRat _ -> pure x'
       LList [] -> throwError $ pack ("NotEnoughRatsError" #Error)
       LList xs -> pure (head xs))
-  , ("last", DataFunction $ \x'@(ComputedValue x) ->
+  , ("last", dataFunction $ \x'@(ComputedValue x) ->
     case x of
       LRat _ -> pure x'
       LList [] -> throwError $ pack ("NotEnoughRatsError" #Error)
       LList xs -> pure (Data.List.last xs))
 
-  , ("tail", DataFunction $ \(ComputedValue x) ->
+  , ("tail", dataFunction $ \(ComputedValue x) ->
     ComputedValue <$> case x of
       LRat _ -> pure . LList $ []
       LList [] -> throwError $ pack ("NotEnoughRatsError" #Error)
       LList xs -> pure . LList . tail $ xs)
 
-  , ("take", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
+  , ("take", dataFunction $ \(ComputedValue n') -> pure . dataFunction $ \(ComputedValue x) ->
     ComputedValue <$> case (n', x) of
       (LRat _, LRat _) -> pure x
       (LRat n, LList xs) -> pure . LList $ Data.List.take (fromEnum n) xs
       (_, _) -> throwError $ pack ("Bad arguments" #Error))
 
-  , ("rotate", DataFunction $ \(ComputedValue n') -> pure . DataFunction $ \(ComputedValue x) ->
+  , ("rotate", dataFunction $ \(ComputedValue n') -> pure . dataFunction $ \(ComputedValue x) ->
     ComputedValue <$> case (n', x) of
       (LRat n, LList xs) -> pure . LList $ rotate (fromEnum n) xs
                             where rotate :: Int -> [a] -> [a]
                                   rotate a l = Data.List.zipWith const (Data.List.drop a (cycle l)) l
       (_, _) -> throwError $ pack ("Bad arguments" #Error))
 
-  , ("rev", DataFunction $ \x ->
+  , ("rev", dataFunction $ \x ->
     case x of
       ComputedValue (LRat _) -> pure x
       ComputedValue (LList xs) -> pure . ComputedValue . LList . Data.List.reverse $ xs
       _ -> throwError $ pack ("Cannot reverse function" #Error))
 
-  , ("flat", DataFunction $ let 
+  , ("flat", dataFunction $ let 
         flat = pure . Many . Prelude.foldr ((:).Single) []
       in onMultiArray flat)
 
@@ -273,7 +285,7 @@ builtins = fromList
 
   -- TODO(Maxime): implement with onMultiArray
   -- FIXME(Maxime): use throwError
-  , ("nth", DataFunction $ \n' -> pure . DataFunction $ \x ->
+  , ("nth", dataFunction $ \n' -> pure . dataFunction $ \x ->
     let
       select [] xs = xs
       select (n:ns) xs =
@@ -293,11 +305,11 @@ builtins = fromList
       (ComputedValue (LList ns), ComputedValue (LList _)) -> select ns x
       (_, _) -> error ("Bad arguments" #Error))
       
-  , ("sort", DataFunction $ \x'@(ComputedValue x) -> 
+  , ("sort", dataFunction $ \x'@(ComputedValue x) -> 
     case x of
       LRat _ -> pure x'
       LList xs -> pure . ComputedValue . LList $ sortOn (\(ComputedValue (LRat v)) -> v) xs)
-  , ("nub", DataFunction . onMultiArray $
+  , ("nub", dataFunction . onMultiArray $
       let isMany (Many _) = True ; isMany _ = False
           nub' (Single v) = pure (Single v)
           nub' (Many xs)
@@ -305,10 +317,10 @@ builtins = fromList
             | isMany (Prelude.head xs) = Many <$> traverse nub' xs
             | otherwise = pure . Many $ nub xs
         in nub')
-  , ("iter", DataFunction $ \(ComputedValue (LRat n)) -> 
-      pure . DataFunction $ \(DataFunction f) -> 
-      pure . DataFunction $ \x'@(ComputedValue _) ->
-        fmap (ComputedValue . LList) . sequence $ Data.List.take (fromEnum n) (iterate (f =<<) $ pure x'))
+  , ("iter", dataFunction $ \(ComputedValue (LRat n)) -> 
+      pure . dataFunction $ \f -> 
+      pure . dataFunction $ \x'@(ComputedValue _) ->
+        fmap (ComputedValue . LList) . sequence $ Data.List.take (fromEnum n) (iterate (executeAsDataFunction f =<<) $ pure x'))
   ]
   where pureRat = pure . ComputedValue . LRat . continuousApprox
         limit = 1_000_000_000_000_000 
@@ -360,14 +372,11 @@ exprAlgebra =
         if t `member` e
           then pure (e ! t)
           else throwError $ pack (("No function named " ++ unpack t) #Error)
-    LAbs t body -> do
-      e <- ask
-      pure . DataFunction $ \x -> do
-        local (const (Data.Map.insert t x e)) body
-    LApp f' x' -> do
-      f <- f'; x <- x'
-      case f of
-        DataFunction df -> df x
+    LAbs t body -> pure (Delayed t body)
+    LApp f' x' ->
+      f' >>= \case
+        Delayed "" df -> df
+        Delayed t df -> executeDelayed t df =<< x'
         ComputedValue v -> (pure.ComputedValue) v
 
 preRender :: MultiArray Rational -> MultiArray String
@@ -453,7 +462,7 @@ valString (ComputedValue (LList xs))
   | isList (Prelude.head xs) = "[" #Parens <>  Data.List.intercalate " ; " (valString <$> xs) <> "]" #Parens
   | otherwise = Prelude.concatMap valString xs
   where isList (ComputedValue (LList _)) = True ; isList _ = False
-valString DataFunction{} = "Cannot show Data Function" #Error
+valString Delayed{} = "Cannot show Data Function" #Error
 
 renderAsCsv :: RuntimeVal m -> Maybe String
 renderAsCsv x = render . homogeniseDepth . preRender' <$> rightToMaybe (rvToMa x)
